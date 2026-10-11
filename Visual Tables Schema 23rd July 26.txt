@@ -1,0 +1,624 @@
+## Table `brokers`
+
+Stores Mortgage Brokers Information.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `name` | `text` |  |
+| `company_name` | `text` |  Nullable |
+| `email` | `text` |  Unique |
+| `phone` | `text` |  Nullable |
+| `license_number` | `text` |  Nullable |
+| `timezone` | `text` |  |
+| `is_active` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `borrowers`
+
+Stores borrower identity and contact information.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `broker_id` | `uuid` |  |
+| `first_name` | `text` |  |
+| `last_name` | `text` |  Nullable |
+| `email` | `text` |  |
+| `phone` | `text` |  |
+| `date_of_birth` | `date` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `loan_applications`
+
+Stores one mortgage application. Every document, borrower, message and AI workflow belongs to an application.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_number` | `text` |  Unique |
+| `broker_id` | `uuid` |  |
+| `loan_type` | `loan_type_enum` |  |
+| `loan_purpose` | `loan_purpose_enum` |  |
+| `requested_amount` | `numeric` |  |
+| `application_status` | `application_status_enum` |  |
+| `system_status` | `system_status_enum` |  |
+| `broker_notes` | `text` |  Nullable |
+| `submitted_at` | `timestamptz` |  Nullable |
+| `settled_at` | `timestamptz` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `deleted_at` | `timestamptz` |  Nullable |
+
+## Table `application_borrowers`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `borrower_id` | `uuid` |  |
+| `borrower_role` | `borrower_role_enum` |  |
+| `ownership_percentage` | `numeric` |  Nullable |
+| `is_primary` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `document_types`
+
+Master catalogue of every supported mortgage document.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `code` | `varchar` |  Unique |
+| `name` | `varchar` |  |
+| `category` | `document_category_enum` |  |
+| `description` | `text` |  Nullable |
+| `is_active` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `document_checklists`
+
+Tracks every required document for every loan application.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `document_type_id` | `uuid` |  |
+| `status` | `document_checklist_status_enum` |  |
+| `is_required` | `bool` |  |
+| `request_sequence` | `int4` |  |
+| `requested_at` | `timestamptz` |  Nullable |
+| `received_at` | `timestamptz` |  Nullable |
+| `verified_at` | `timestamptz` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `documents`
+
+Stores every uploaded document received from borrowers.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `checklist_id` | `uuid` |  |
+| `original_filename` | `text` |  |
+| `stored_filename` | `text` |  |
+| `storage_path` | `text` |  |
+| `mime_type` | `text` |  |
+| `file_extension` | `varchar` |  |
+| `file_size_bytes` | `int8` |  |
+| `file_hash` | `bpchar` |  Nullable |
+| `processing_status` | `document_processing_status_enum` |  |
+| `is_password_protected` | `bool` |  |
+| `uploaded_at` | `timestamptz` |  |
+| `processed_at` | `timestamptz` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `document_versions`
+
+Immutable history of every uploaded version of a document.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `document_id` | `uuid` |  |
+| `version_number` | `int4` |  |
+| `storage_path` | `text` |  |
+| `original_filename` | `text` |  |
+| `mime_type` | `text` |  |
+| `file_size_bytes` | `int8` |  |
+| `file_hash` | `text` |  |
+| `uploaded_by` | `text` |  |
+| `version_status` | `document_version_status_enum` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `ocr_results`
+
+OCR output generated from uploaded documents.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `document_id` | `uuid` |  |
+| `document_version_id` | `uuid` |  Nullable |
+| `ocr_provider` | `text` |  |
+| `provider_job_id` | `text` |  Nullable |
+| `raw_text` | `text` |  Nullable |
+| `extracted_json` | `jsonb` |  Nullable |
+| `confidence_score` | `numeric` |  Nullable |
+| `page_count` | `int4` |  Nullable |
+| `processing_time_ms` | `int4` |  Nullable |
+| `ocr_status` | `ocr_status_enum` |  |
+| `error_message` | `text` |  Nullable |
+| `started_at` | `timestamptz` |  Nullable |
+| `completed_at` | `timestamptz` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `document_intelligence_results`
+
+Structured business fields extracted by the AI Document Intelligence Agent.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `document_id` | `uuid` |  |
+| `document_version_id` | `uuid` |  |
+| `ocr_result_id` | `uuid` |  Unique |
+| `ai_provider` | `varchar` |  |
+| `ai_model` | `varchar` |  |
+| `extracted_fields` | `jsonb` |  |
+| `confidence_score` | `numeric` |  Nullable |
+| `processing_time_ms` | `int4` |  Nullable |
+| `intelligence_status` | `intelligence_status_enum` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `cross_validation_results`
+
+Stores AI comparison results across multiple mortgage documents.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `loan_application_id` | `uuid` |  |
+| `document_intelligence_result_1_id` | `uuid` |  |
+| `document_intelligence_result_2_id` | `uuid` |  |
+| `field_name` | `text` |  |
+| `value_1` | `text` |  Nullable |
+| `value_2` | `text` |  Nullable |
+| `validation_status` | `cross_validation_status_enum` |  |
+| `confidence_score` | `numeric` |  Nullable |
+| `validation_notes` | `text` |  Nullable |
+| `ai_provider` | `text` |  Nullable |
+| `ai_model` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `verification_results`
+
+Stores AI and rule-based verification outcomes for individual mortgage documents.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `intelligence_result_id` | `uuid` |  |
+| `verification_type` | `verification_type_enum` |  |
+| `verification_status` | `verification_status_enum` |  |
+| `confidence_score` | `numeric` |  Nullable |
+| `verification_message` | `text` |  Nullable |
+| `verified_by` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `decision_results`
+
+Stores the final AI decision for each mortgage application after document intelligence, verification and cross-validation.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `final_decision` | `decision_status_enum` |  |
+| `confidence_score` | `numeric` |  Nullable |
+| `decision_reason` | `text` |  Nullable |
+| `ai_provider` | `varchar` |  Nullable |
+| `ai_model` | `varchar` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `messages`
+
+Stores every communication exchanged during the mortgage application lifecycle between borrower, broker, AI agents and system services.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `sender_type` | `sender_type_enum` |  |
+| `receiver_type` | `receiver_type_enum` |  |
+| `channel` | `message_channel_enum` |  |
+| `message_type` | `message_type_enum` |  |
+| `direction` | `text` |  |
+| `message_text` | `text` |  |
+| `external_message_id` | `text` |  Nullable |
+| `delivery_status` | `delivery_status_enum` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `conversation_session_id` | `uuid` |  Nullable |
+
+## Table `reminders`
+
+Stores every scheduled reminder generated during the mortgage application lifecycle.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `reminder_type` | `varchar` |  |
+| `reminder_reason` | `text` |  Nullable |
+| `scheduled_at` | `timestamptz` |  |
+| `sent_at` | `timestamptz` |  Nullable |
+| `next_retry_at` | `timestamptz` |  Nullable |
+| `reminder_count` | `int4` |  |
+| `max_reminders` | `int4` |  |
+| `status` | `varchar` |  |
+| `channel` | `varchar` |  |
+| `created_by` | `varchar` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `conversation_sessions`
+
+Represents a logical communication session for a loan application across WhatsApp, Email, SMS, Voice or other channels.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `session_identifier` | `text` |  Nullable |
+| `channel` | `text` |  |
+| `session_status` | `text` |  |
+| `initiated_by` | `text` |  |
+| `started_at` | `timestamptz` |  |
+| `last_message_at` | `timestamptz` |  Nullable |
+| `ended_at` | `timestamptz` |  Nullable |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `ai_agent_executions`
+
+Stores every execution performed by an AI agent including execution metadata, token usage, cost, timing and failures.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `conversation_session_id` | `uuid` |  Nullable |
+| `agent_name` | `varchar` |  |
+| `execution_status` | `varchar` |  |
+| `trigger_source` | `varchar` |  |
+| `started_at` | `timestamptz` |  |
+| `completed_at` | `timestamptz` |  Nullable |
+| `execution_duration_ms` | `int4` |  Nullable |
+| `input_payload` | `jsonb` |  Nullable |
+| `output_payload` | `jsonb` |  Nullable |
+| `error_message` | `text` |  Nullable |
+| `prompt_tokens` | `int4` |  Nullable |
+| `completion_tokens` | `int4` |  Nullable |
+| `total_tokens` | `int4` |  Nullable |
+| `estimated_cost_usd` | `numeric` |  Nullable |
+| `model_name` | `varchar` |  Nullable |
+| `retry_count` | `int4` |  |
+| `workflow_execution_id` | `varchar` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `agent_execution_events`
+
+Stores every event generated during an AI agent execution, providing a complete execution timeline for debugging, auditing and replay.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `execution_id` | `uuid` |  |
+| `event_sequence` | `int4` |  |
+| `event_type` | `text` |  |
+| `event_status` | `text` |  |
+| `event_source` | `text` |  |
+| `message` | `text` |  Nullable |
+| `payload` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+
+## Table `workflow_instances`
+
+Represents one running business workflow for a mortgage loan application.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `workflow_name` | `varchar` |  |
+| `workflow_version` | `int4` |  |
+| `current_stage` | `varchar` |  |
+| `current_step` | `varchar` |  |
+| `workflow_status` | `workflow_status_enum` |  |
+| `progress_percentage` | `numeric` |  |
+| `started_at` | `timestamptz` |  |
+| `completed_at` | `timestamptz` |  Nullable |
+| `last_activity_at` | `timestamptz` |  |
+| `failure_reason` | `text` |  Nullable |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `workflow_definitions`
+
+Stores reusable workflow templates used to create workflow instances.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `workflow_code` | `varchar` |  |
+| `workflow_name` | `varchar` |  |
+| `version` | `int4` |  |
+| `description` | `text` |  Nullable |
+| `is_active` | `bool` |  |
+| `initial_stage` | `varchar` |  |
+| `initial_step` | `varchar` |  |
+| `estimated_step_count` | `int4` |  |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `workflow_stages`
+
+Defines the ordered business stages that make up a workflow template.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `workflow_definition_id` | `uuid` |  |
+| `stage_code` | `varchar` |  |
+| `stage_name` | `varchar` |  |
+| `stage_order` | `int4` |  |
+| `description` | `text` |  Nullable |
+| `stage_type` | `workflow_stage_type_enum` |  |
+| `allow_parallel` | `bool` |  |
+| `expected_duration_minutes` | `int4` |  Nullable |
+| `is_active` | `bool` |  |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `ai_agents`
+
+Master registry of all AI and System agents used by the Mortgage AI Platform.
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `agent_code` | `varchar` |  Unique |
+| `agent_name` | `varchar` |  |
+| `description` | `text` |  Nullable |
+| `agent_type` | `agent_type_enum` |  |
+| `ai_provider` | `varchar` |  |
+| `model_name` | `varchar` |  |
+| `prompt_version` | `int4` |  |
+| `temperature` | `numeric` |  |
+| `execution_timeout_seconds` | `int4` |  |
+| `max_retry_count` | `int4` |  |
+| `supports_parallel_execution` | `bool` |  |
+| `supports_human_override` | `bool` |  |
+| `is_active` | `bool` |  |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `workflow_steps`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `workflow_definition_id` | `uuid` |  |
+| `workflow_stage_id` | `uuid` |  |
+| `ai_agent_id` | `uuid` |  |
+| `step_code` | `varchar` |  |
+| `step_name` | `varchar` |  |
+| `description` | `text` |  Nullable |
+| `execution_order` | `int4` |  |
+| `is_required` | `bool` |  |
+| `allow_parallel` | `bool` |  |
+| `stop_on_failure` | `bool` |  |
+| `timeout_seconds` | `int4` |  |
+| `max_retries` | `int4` |  |
+| `retry_delay_seconds` | `int4` |  |
+| `step_status` | `workflow_step_status_enum` |  |
+| `configuration` | `jsonb` |  |
+| `input_schema` | `jsonb` |  |
+| `output_schema` | `jsonb` |  |
+| `is_active` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `workflow_executions`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `application_id` | `uuid` |  |
+| `workflow_definition_id` | `uuid` |  |
+| `execution_number` | `int4` |  |
+| `status` | `workflow_execution_status_enum` |  |
+| `current_workflow_stage_id` | `uuid` |  Nullable |
+| `started_at` | `timestamptz` |  Nullable |
+| `completed_at` | `timestamptz` |  Nullable |
+| `total_execution_time_ms` | `int4` |  |
+| `triggered_by` | `varchar` |  Nullable |
+| `trigger_source` | `varchar` |  Nullable |
+| `workflow_input` | `jsonb` |  |
+| `workflow_output` | `jsonb` |  |
+| `metadata` | `jsonb` |  |
+| `error_message` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Custom Types / Enums
+
+### `agent_type_enum`
+
+`AI` | `SYSTEM`
+
+### `application_status_enum`
+
+`DRAFT` | `DOCUMENT_COLLECTION` | `DOCUMENT_VERIFICATION` | `READY_FOR_REVIEW` | `READY_FOR_SUBMISSION` | `SUBMITTED` | `CONDITIONAL_APPROVAL` | `FORMAL_APPROVAL` | `SETTLED` | `CANCELLED` | `WITHDRAWN`
+
+### `borrower_role_enum`
+
+`PRIMARY` | `CO_BORROWER` | `GUARANTOR` | `TRUSTEE` | `DIRECTOR`
+
+### `cross_validation_status_enum`
+
+`MATCH` | `MISMATCH` | `MISSING` | `PARTIAL_MATCH` | `NOT_APPLICABLE`
+
+### `decision_status_enum`
+
+`APPROVED` | `DECLINED` | `MANUAL_REVIEW` | `MORE_DOCUMENTS_REQUIRED` | `PENDING`
+
+### `delivery_status_enum`
+
+`QUEUED` | `SENT` | `DELIVERED` | `READ` | `FAILED`
+
+### `document_category_enum`
+
+`IDENTITY` | `INCOME` | `BANKING` | `EMPLOYMENT` | `PROPERTY` | `LIABILITY` | `BUSINESS` | `TAX` | `OTHER`
+
+### `document_checklist_status_enum`
+
+`PENDING` | `REQUESTED` | `RECEIVED` | `OCR_COMPLETED` | `UNDER_REVIEW` | `VERIFIED` | `REJECTED` | `WAIVED`
+
+### `document_processing_status_enum`
+
+`UPLOADED` | `PROCESSING` | `OCR_COMPLETED` | `VERIFIED` | `FAILED`
+
+### `document_version_status_enum`
+
+`ACTIVE` | `SUPERSEDED` | `DELETED`
+
+### `intelligence_status_enum`
+
+`PENDING` | `PROCESSING` | `COMPLETED` | `FAILED`
+
+### `loan_purpose_enum`
+
+`OWNER_OCCUPIED` | `INVESTMENT` | `REFINANCE` | `EQUITY_RELEASE` | `CONSTRUCTION`
+
+### `loan_type_enum`
+
+`HOME_LOAN` | `INVESTMENT_LOAN` | `REFINANCE` | `CONSTRUCTION_LOAN`
+
+### `message_channel_enum`
+
+`EMAIL` | `SMS` | `WHATSAPP` | `TELEGRAM` | `PORTAL` | `PHONE`
+
+### `message_type_enum`
+
+`TEXT` | `IMAGE` | `DOCUMENT` | `SYSTEM_MESSAGE`
+
+### `ocr_status_enum`
+
+`PENDING` | `PROCESSING` | `COMPLETED` | `FAILED`
+
+### `receiver_type_enum`
+
+`BORROWER` | `BROKER` | `AI_AGENT` | `SYSTEM`
+
+### `sender_type_enum`
+
+`BORROWER` | `BROKER` | `AI_AGENT` | `SYSTEM`
+
+### `system_status_enum`
+
+`ACTIVE` | `ON_HOLD` | `ARCHIVED` | `DELETED`
+
+### `verification_status_enum`
+
+`PENDING` | `PASSED` | `FAILED` | `WARNING` | `MANUAL_REVIEW`
+
+### `verification_type_enum`
+
+`DOCUMENT_AUTHENTICITY` | `DOCUMENT_EXPIRY` | `OCR_QUALITY` | `IDENTITY_MATCH` | `ADDRESS_MATCH` | `ABN_VALIDATION` | `ACN_VALIDATION` | `BANK_ACCOUNT_VALIDATION` | `SIGNATURE_VERIFICATION` | `FRAUD_CHECK`
+
+### `workflow_execution_status_enum`
+
+`PENDING` | `RUNNING` | `WAITING` | `COMPLETED` | `FAILED` | `CANCELLED` | `PAUSED`
+
+### `workflow_stage_type_enum`
+
+`HUMAN` | `AI` | `SYSTEM`
+
+### `workflow_status_enum`
+
+`CREATED` | `RUNNING` | `WAITING` | `PAUSED` | `FAILED` | `COMPLETED` | `CANCELLED`
+
+### `workflow_step_status_enum`
+
+`ACTIVE` | `DISABLED` | `DEPRECATED`
+

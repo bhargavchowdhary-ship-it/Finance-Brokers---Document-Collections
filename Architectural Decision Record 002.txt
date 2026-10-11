@@ -1,0 +1,138 @@
+Architecture Decision Record (ADR-002)
+
+Decision: Add workflow_transitions and workflow_events as core platform tables.
+
+Status: ✅ Approved
+
+These tables become first-class citizens alongside:
+
+workflow_definitions
+workflow_stages
+workflow_steps
+workflow_instances
+workflow_executions
+ai_agent_executions
+
+This extends—rather than replaces—the workflow schema we've already established.
+
+New Table 1 — workflow_transitions
+Purpose
+
+This table defines every legal transition in the workflow engine.
+
+Instead of:
+
+if stage == OCR then goto Verification
+
+the engine performs:
+
+SELECT *
+FROM workflow_transitions
+WHERE from_stage = ?
+AND event_type = ?
+AND is_active = true;
+Recommended Columns
+Column	Type	Description
+transition_id	UUID	Primary key
+workflow_definition_id	UUID	Workflow version
+from_stage_id	UUID	Current stage
+to_stage_id	UUID	Next stage
+event_type	TEXT	Triggering event
+rule_expression	JSONB	Rule metadata
+owner_agent_id	UUID	Responsible AI agent
+next_step_id	UUID	Next workflow step
+retry_policy_id	UUID	Retry policy
+timeout_minutes	INTEGER	SLA
+priority	INTEGER	Transition priority
+is_active	BOOLEAN	Enabled/disabled
+created_at	TIMESTAMP	Audit
+updated_at	TIMESTAMP	Audit
+New Table 2 — workflow_events
+Purpose
+
+This table stores immutable business events.
+
+Every AI Agent emits events.
+
+The Workflow Manager consumes events.
+
+Recommended Columns
+Column	Type	Description
+event_id	UUID	Primary key
+workflow_instance_id	UUID	Workflow instance
+workflow_execution_id	UUID	Execution reference
+application_id	UUID	Loan application
+event_type	TEXT	Standard event
+source_agent_id	UUID	Emitting AI agent
+payload	JSONB	Event payload
+correlation_id	UUID	Trace ID
+causation_id	UUID	Parent event
+occurred_at	TIMESTAMP	Event timestamp
+processed_at	TIMESTAMP	Processing timestamp
+processing_status	TEXT	NEW / PROCESSED / FAILED
+Event Flow
+Conversation Manager
+        │
+        ▼
+DOCUMENT_UPLOADED
+        │
+        ▼
+workflow_events
+        │
+        ▼
+Workflow Manager
+        │
+        ▼
+Resolve Transition
+        │
+        ▼
+Execute Document Intake
+        │
+        ▼
+DOCUMENT_INTAKE_COMPLETED
+        │
+        ▼
+workflow_events
+Why These Tables Matter
+
+By introducing these tables, the platform gains:
+
+Configurable workflow transitions without changing n8n.
+Immutable event history for debugging and compliance.
+Easier analytics and SLA reporting.
+Future support for lender-specific and broker-specific workflows.
+Cleaner separation between orchestration and business logic.
+Updated Platform Architecture
+                  External Events
+                         │
+                         ▼
+                 workflow_events
+                         │
+                         ▼
+                Workflow Manager
+                         │
+                         ▼
+            workflow_transitions
+                         │
+                         ▼
+              Resolve Next Action
+                         │
+                         ▼
+                Execute AI Agent
+                         │
+                         ▼
+                 Emit New Event
+Project Roadmap
+
+With the architecture now stabilized, I recommend we move into implementation.
+
+Phase	Deliverable	Status
+1	Workflow Manager Architecture	✅
+2	Workflow Manager System Prompt	✅
+3	JSON Contracts	✅
+4	Database Interface	✅
+4.5	State Machine	✅
+4.6	Workflow Engine Specification	✅
+5	Production n8n Workflow Blueprint	▶️ Next
+6	Production n8n Implementation	Pending
+7	Production Testing & Hardening	Pending

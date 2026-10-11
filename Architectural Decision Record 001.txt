@@ -1,0 +1,269 @@
+Architecture Decision Record (ADR-001)
+Title
+
+Adopt a Metadata-Driven Workflow Engine
+
+Status: ✅ Approved
+
+Decision Date: 30 July 2026
+
+Current (Static Workflow)
+
+Today, most n8n automations look like this:
+
+Webhook
+
+↓
+
+Switch
+
+↓
+
+If
+
+↓
+
+Switch
+
+↓
+
+Execute Workflow
+
+↓
+
+Switch
+
+↓
+
+If
+
+↓
+
+Execute Workflow
+
+This works initially, but becomes difficult to maintain as the number of AI agents and workflow variations grows.
+
+New Architecture
+
+Instead, n8n becomes a generic execution engine.
+
+Webhook
+
+↓
+
+Workflow Manager
+
+↓
+
+Load Workflow Metadata
+
+↓
+
+Determine Next Step
+
+↓
+
+Execute Child Workflow
+
+↓
+
+Wait for Response
+
+↓
+
+Update State
+
+↓
+
+Repeat
+
+The business logic lives in the database, not inside n8n.
+
+Single Source of Truth
+
+The following tables become the workflow engine.
+
+Table	Purpose
+workflow_definitions	Workflow template
+workflow_stages	Stage definitions
+workflow_steps	Step definitions
+workflow_instances	Runtime state
+workflow_executions	Execution history
+ai_agent_executions	AI audit
+agent_execution_events	Event log
+
+n8n simply executes what these tables define.
+
+Proposed Engine
+                  Workflow Manager
+
+                         │
+
+                         ▼
+
+              Load Workflow Definition
+
+                         │
+
+                         ▼
+
+              Load Current Stage
+
+                         │
+
+                         ▼
+
+             Load Current Step
+
+                         │
+
+                         ▼
+
+           Determine Next Transition
+
+                         │
+
+                         ▼
+
+              Execute Child Workflow
+
+                         │
+
+                         ▼
+
+             Validate Response
+
+                         │
+
+                         ▼
+
+          Update Workflow Instance
+
+                         │
+
+                         ▼
+
+                  Repeat
+
+Notice:
+
+No Switch nodes.
+
+No nested IF nodes.
+
+No duplicated logic.
+
+Recommended Enhancements to Database
+
+The current schema is solid, but to support a metadata-driven engine, I recommend extending it with a few configuration columns rather than changing its overall structure.
+
+workflow_stages
+
+Add orchestration metadata such as:
+
+Column	Purpose
+stage_code	Stable identifier
+stage_order	Sequence
+owner_agent	Owning AI Agent
+entry_condition	Expression or rule reference
+exit_condition	Expression or rule reference
+timeout_minutes	SLA
+retry_policy_id	Retry configuration
+workflow_steps
+
+Enhance each step with execution metadata.
+
+Column	Purpose
+step_code	Stable identifier
+step_order	Execution order
+ai_agent	Responsible agent
+is_blocking	Must complete before continuing
+max_retries	Override default retry policy
+timeout_minutes	Step SLA
+on_success	Next transition
+on_failure	Failure transition
+rollback_stage	Optional rollback target
+workflow_definitions
+
+Include versioning and activation controls.
+
+Column	Purpose
+version	Workflow version
+active	Enable/disable
+effective_from	Activation date
+effective_to	Retirement date
+
+This allows multiple workflow versions to coexist safely.
+
+Transition Engine
+
+Instead of:
+
+IF Stage == OCR
+
+↓
+
+Run OCR
+
+The Workflow Manager performs:
+
+SELECT next_stage
+
+FROM workflow_steps
+
+WHERE current_stage = ?
+
+AND status = SUCCESS
+
+The workflow becomes data-driven.
+
+Advantages
+Versioning
+
+WF-004 v1
+
+WF-004 v2
+
+WF-004 v3
+
+All can run simultaneously for different applications.
+
+No Code Changes
+
+Adding a stage becomes:
+
+Insert a row.
+
+Not:
+
+Modify multiple n8n workflows.
+
+Easier Testing
+
+A workflow definition can be validated before activation.
+
+Better Analytics
+
+Since transitions are metadata-driven, we can report:
+
+Average time per stage
+Average retries
+OCR failure rate
+Verification bottlenecks
+SLA compliance
+AI agent performance
+Workflow duration
+
+without parsing workflow logic.
+
+Future Compatibility
+
+This design positions us well for future capabilities:
+
+Multiple mortgage products with different workflows
+Aggregator-specific workflows
+Bank-specific document requirements
+Manual approval gates
+Parallel execution (e.g., OCR on multiple uploaded documents)
+Dynamic rule evaluation
+A visual workflow designer

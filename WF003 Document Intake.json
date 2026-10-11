@@ -1,0 +1,591 @@
+{
+  "name": "WF003 Document Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1568,
+        128
+      ],
+      "id": "ea981421-5725-470b-92ab-4cfe28214268",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst document_id = body.document_id;\nconst checklist_id = body.checklist_id;\nconst workflow_instance_id = body.workflow_instance_id || null;\nconst loan_application_id = body.loan_application_id || null;\n\nif (!document_id) {\n  throw new Error('document_id missing from input payload');\n}\nif (!checklist_id) {\n  throw new Error('checklist_id missing from input payload');\n}\n\nreturn [{ json: {\n  document_id,\n  checklist_id,\n  workflow_instance_id,\n  loan_application_id\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        128
+      ],
+      "id": "5e45b144-2a13-4dc1-84c5-0dbda21051e0",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$json.document_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        128
+      ],
+      "id": "88cdbf21-b9d6-4514-ae3b-08c5831862c7",
+      "name": "Get Document",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "document_checklists",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$('Normalize Input').item.json.checklist_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -896,
+        128
+      ],
+      "id": "4079fd33-9b7c-43b3-a7f9-36c869a99fc4",
+      "name": "Get Checklist Item",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "loan_applications",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$('Get Checklist Item').item.json.application_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        128
+      ],
+      "id": "bf169a33-364c-4376-9274-c78a8b464cbb",
+      "name": "Get Loan Application",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const doc = $('Get Document').item.json;\nconst ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];\nconst MAX_BYTES = 15 * 1024 * 1024; // 15MB\n\nconst reasons = [];\nif (!ALLOWED_MIME.includes(doc.mime_type)) reasons.push('unsupported_file_type');\nif (!doc.file_size_bytes || doc.file_size_bytes === 0) reasons.push('empty_file');\nif (doc.file_size_bytes > MAX_BYTES) reasons.push('file_too_large');\nif (doc.is_password_protected) reasons.push('password_protected');\n\nreturn [{ json: {\n  document_id: doc.id,\n  checklist_id: doc.checklist_id,\n  application_id: $('Get Loan Application').item.json.id,\n  storage_path: doc.storage_path,\n  mime_type: doc.mime_type,\n  is_valid: reasons.length === 0,\n  reasons\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        128
+      ],
+      "id": "d1f199ea-68ff-4610-a80c-87a97b025ae5",
+      "name": "Validate Document"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.is_valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        128
+      ],
+      "id": "cff70b07-80ac-4146-a785-b88e60486c59",
+      "name": "Document Valid?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$json.document_id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "processing_status",
+              "fieldValue": "PROCESSING"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e66a029c-5816-4edb-bba4-0ccada735f34",
+      "name": "Set Status Processing",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Validate Document').item.json.application_id}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DOCUMENT_INTAKE_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF001_DOCUMENT_UPLOADED"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{ { document_id: $('Validate Document').item.json.document_id, checklist_id: $('Validate Document').item.json.checklist_id } }}"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { processing_status: 'PROCESSING' } }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "a0ed6a06-966b-49da-96a9-b029c3e9209e",
+      "name": "Log Agent Execution (Success)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Execute Workflow call to WF-004 OCR Agent. Payload MUST be: { document_id, storage_path, mime_type, application_id } — WF-004 requires application_id for ai_agent_executions logging and does NOT look it up itself.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        0
+      ],
+      "id": "f8a6e867-652a-4257-a6aa-aeca3ade96e6",
+      "name": "STUB Trigger OCR Agent (TODO wire WF-004)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Validate Document').item.json.document_id}}",
+              "type": "string"
+            },
+            {
+              "name": "processing_status",
+              "value": "PROCESSING",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        0
+      ],
+      "id": "65b70858-9102-486f-8bb1-0ff5ed6e4941",
+      "name": "Respond Success"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$json.document_id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "processing_status",
+              "fieldValue": "FAILED"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        256
+      ],
+      "id": "f2968326-244e-4543-aee8-9546ac2255ae",
+      "name": "Set Status Failed",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Validate Document').item.json.application_id}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DOCUMENT_INTAKE_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "FAILED"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF001_DOCUMENT_UPLOADED"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{ { document_id: $('Validate Document').item.json.document_id, checklist_id: $('Validate Document').item.json.checklist_id } }}"
+            },
+            {
+              "fieldId": "error_message",
+              "fieldValue": "={{ $('Validate Document').item.json.reasons.join(', ') }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        256
+      ],
+      "id": "bfa4c40a-dbb8-4f70-90ca-e321e62bf737",
+      "name": "Log Agent Execution (Failed)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "FAILED",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Validate Document').item.json.document_id}}",
+              "type": "string"
+            },
+            {
+              "name": "reasons",
+              "value": "={{$('Validate Document').item.json.reasons}}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        256
+      ],
+      "id": "13fc0fc4-90d2-46fd-a07f-1ededff470dc",
+      "name": "Respond Failed"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "document_id": "12bd253d-cf7b-4a97-8943-afdc8023ba50",
+          "checklist_id": "c2e49e6c-7e7c-489b-abe4-df43bfc890c3"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Document": {
+      "main": [
+        [
+          {
+            "node": "Get Checklist Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Checklist Item": {
+      "main": [
+        [
+          {
+            "node": "Get Loan Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Loan Application": {
+      "main": [
+        [
+          {
+            "node": "Validate Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Document": {
+      "main": [
+        [
+          {
+            "node": "Document Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Valid?": {
+      "main": [
+        [
+          {
+            "node": "Set Status Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Status Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status Processing": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Success)": {
+      "main": [
+        [
+          {
+            "node": "STUB Trigger OCR Agent (TODO wire WF-004)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Trigger OCR Agent (TODO wire WF-004)": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status Failed": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Failed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Failed)": {
+      "main": [
+        [
+          {
+            "node": "Respond Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "dc996122-54cc-44c4-9a45-d0d9027fd74a",
+  "meta": {
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "1ASCGWXuNSJtM9Cc",
+  "tags": []
+}

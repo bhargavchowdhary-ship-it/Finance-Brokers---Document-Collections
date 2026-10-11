@@ -1,0 +1,340 @@
+{
+  "name": "WF010 Broker Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "a1fd3b90-6fc3-45a0-a9eb-85dce90403e6",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst application_id = body.application_id;\nif (!application_id) throw new Error('application_id missing from input payload');\nreturn [{ json: { application_id } }];"
+      },
+      "id": "3cecc984-e255-4b9c-8941-c0e8ffe69e04",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT br.name AS broker_name, br.email AS broker_email,\n  la.application_number, la.loan_type, la.requested_amount,\n  b.first_name AS borrower_first_name, b.last_name AS borrower_last_name,\n  dr.final_decision, dr.decision_reason, dr.confidence_score\nFROM loan_applications la\nJOIN brokers br ON br.id = la.broker_id\nJOIN application_borrowers ab ON ab.application_id = la.id AND ab.is_primary = true\nJOIN borrowers b ON b.id = ab.borrower_id\nLEFT JOIN decision_results dr ON dr.application_id = la.id\nWHERE la.id = $1\nORDER BY dr.created_at DESC\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [$json.application_id] }}"
+        }
+      },
+      "id": "db57d0a7-cc56-41c9-a928-1bb195166544",
+      "name": "Get Application Decision Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1952,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Input').first().json;\nconst ctx = $('Get Application Decision Context').first().json;\nconst borrowerName = `${ctx.borrower_first_name || ''} ${ctx.borrower_last_name || ''}`.trim() || 'the borrower';\nconst amount = ctx.requested_amount ? Number(ctx.requested_amount).toLocaleString('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }) : 'N/A';\n\nlet subject, headline;\nif (ctx.final_decision === 'MANUAL_REVIEW') {\n  subject = `Action needed: Application ${ctx.application_number} — ${borrowerName}`;\n  headline = `Application ${ctx.application_number} for ${borrowerName} needs your review. Cross-validation found a discrepancy across the borrower's documents that our automated checks can't resolve on their own.`;\n} else {\n  subject = `Application ${ctx.application_number} ready for review — ${borrowerName}`;\n  headline = `Application ${ctx.application_number} for ${borrowerName} has completed document collection, verification, and cross-validation.`;\n}\n\nconst message = `Hi ${ctx.broker_name || 'there'},\\n\\n`\n  + `${headline}\\n\\n`\n  + `Loan type: ${ctx.loan_type || 'N/A'}\\n`\n  + `Requested amount: ${amount}\\n`\n  + `Decision: ${ctx.final_decision || 'N/A'}\\n`\n  + `Details: ${ctx.decision_reason || 'N/A'}\\n\\n`\n  + (ctx.final_decision === 'MANUAL_REVIEW'\n    ? `Please review the flagged documents and decide how to proceed.\\n\\n`\n    : `This application is ready for your review and submission.\\n\\n`)\n  + `— Mortgage Broker AI Platform`;\n\nreturn [{ json: { ...input, ...ctx, subject, message } }];"
+      },
+      "id": "a203ce0b-59b4-43bb-81d4-f0ecffc59919",
+      "name": "Compose Broker Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.broker_email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "9a20910c-0a77-4625-adfa-95410c027c7d",
+      "name": "Send Broker Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1504,
+        400
+      ],
+      "webhookId": "8e7e4a00-6b8d-4ca1-948b-0ae759e04e78",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "nYaT8VPcB4d9eVhX",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "sender_type",
+              "fieldValue": "AI_AGENT"
+            },
+            {
+              "fieldId": "receiver_type",
+              "fieldValue": "BROKER"
+            },
+            {
+              "fieldId": "channel",
+              "fieldValue": "EMAIL"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "TEXT"
+            },
+            {
+              "fieldId": "direction",
+              "fieldValue": "OUTBOUND"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $('Compose Broker Email').item.json.message }}"
+            },
+            {
+              "fieldId": "external_message_id",
+              "fieldValue": "={{ $json.id }}"
+            },
+            {
+              "fieldId": "delivery_status",
+              "fieldValue": "SENT"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "id": "5db393b9-bfe1-4ddb-8a20-7cecd0f128bf",
+      "name": "Insert Message Record",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1280,
+        400
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "BROKER_NOTIFICATION_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF008_DECISION_AGENT"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { channel: 'EMAIL', broker_email: $('Compose Broker Email').item.json.broker_email } }}"
+            }
+          ]
+        }
+      },
+      "id": "515ed697-5daa-41c4-baed-7c2b9cd6516f",
+      "name": "Log Agent Execution",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        400
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SENT",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $('Normalize Input').item.json.application_id }}",
+              "type": "string"
+            },
+            {
+              "name": "channel",
+              "value": "EMAIL",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7b89515d-9119-4d39-abd0-4b333445b160",
+      "name": "Respond Sent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -832,
+        400
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "application_id": "f0ec4f3c-4b2e-46ab-9cb7-9d32d2dc570c"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Application Decision Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Application Decision Context": {
+      "main": [
+        [
+          {
+            "node": "Compose Broker Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Broker Email": {
+      "main": [
+        [
+          {
+            "node": "Send Broker Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Broker Email": {
+      "main": [
+        [
+          {
+            "node": "Insert Message Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Message Record": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution": {
+      "main": [
+        [
+          {
+            "node": "Respond Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "bbaeada5-7e7d-4941-97c7-b0e45bc214d6",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "EafKwN0EZW2Xh3aU",
+  "tags": []
+}

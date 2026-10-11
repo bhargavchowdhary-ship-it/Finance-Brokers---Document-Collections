@@ -1,0 +1,633 @@
+{
+  "name": "WF007 Cross Validation",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "77caf88b-0775-4a24-b518-cd3f181b5a91",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst application_id = body.application_id;\nif (!application_id) throw new Error('application_id missing from input payload');\nreturn [{ json: { application_id } }];"
+      },
+      "id": "23a4f388-25c7-4723-a14a-9fa553e6c756",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) AS pending_count\nFROM document_checklists dc\nLEFT JOIN documents d\n  ON d.checklist_id = dc.id\n  AND d.processing_status = 'VERIFIED'\nWHERE dc.application_id = $1\n  AND dc.is_required = true\n  AND d.id IS NULL;",
+        "options": {
+          "queryReplacement": "={{ [$json.application_id] }}"
+        }
+      },
+      "id": "e3018584-d9b9-4a0d-aaa3-e187c05ab391",
+      "name": "Check Readiness",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1952,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{Number($json.pending_count)}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a5b8d8a2-6ae2-4bcf-931b-1c8cc89cc5c0",
+      "name": "All Required Docs Verified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1728,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT ON (dir.document_id)\n  dir.id AS intelligence_result_id,\n  dir.document_id,\n  dir.extracted_fields\nFROM document_intelligence_results dir\nJOIN documents d ON d.id = dir.document_id\nJOIN document_checklists dc ON dc.id = d.checklist_id\nWHERE dc.application_id = $1\n  AND d.processing_status = 'VERIFIED'\n  AND dir.intelligence_status = 'COMPLETED'\nORDER BY dir.document_id, dir.created_at DESC;",
+        "options": {
+          "queryReplacement": "={{ [$('Normalize Input').item.json.application_id] }}"
+        }
+      },
+      "id": "aa446846-dd94-40b3-8faf-bd93ea2abc31",
+      "name": "Get Verified Intelligence Results",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1504,
+        272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalize(s) {\n  if (!s) return '';\n  return String(s).toLowerCase().trim()\n    .replace(/[.,#]/g, '')\n    .replace(/\\bst\\b/g, 'street')\n    .replace(/\\brd\\b/g, 'road')\n    .replace(/\\bave\\b/g, 'avenue')\n    .replace(/\\bapt\\b/g, 'apartment')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction levenshtein(a, b) {\n  const m = a.length, n = b.length;\n  if (m === 0) return n;\n  if (n === 0) return m;\n  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));\n  for (let i = 0; i <= m; i++) dp[i][0] = i;\n  for (let j = 0; j <= n; j++) dp[0][j] = j;\n  for (let i = 1; i <= m; i++) {\n    for (let j = 1; j <= n; j++) {\n      const cost = a[i - 1] === b[j - 1] ? 0 : 1;\n      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);\n    }\n  }\n  return dp[m][n];\n}\n\nfunction similarity(a, b) {\n  const na = normalize(a), nb = normalize(b);\n  const maxLen = Math.max(na.length, nb.length, 1);\n  return 1 - (levenshtein(na, nb) / maxLen);\n}\n\nfunction compareFuzzy(v1, v2, matchAt, partialAt) {\n  if (!v1 || !v2) {\n    return { status: 'MISSING', score: null, notes: 'One or both documents do not carry this field.' };\n  }\n  const score = Math.round(similarity(v1, v2) * 100 * 100) / 100;\n  if (score >= matchAt) return { status: 'MATCH', score, notes: `Similarity ${score}%.` };\n  if (score >= partialAt) return { status: 'PARTIAL_MATCH', score, notes: `Fuzzy match, similarity ${score}%.` };\n  return { status: 'MISMATCH', score, notes: `Similarity only ${score}% - below acceptable threshold.` };\n}\n\nfunction compareDate(v1, v2) {\n  if (!v1 || !v2) {\n    return { status: 'MISSING', score: null, notes: 'One or both documents do not carry this field.' };\n  }\n  const d1 = new Date(v1), d2 = new Date(v2);\n  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) {\n    return { status: 'PARTIAL_MATCH', score: null, notes: 'Could not parse one or both dates for exact comparison.' };\n  }\n  const iso1 = d1.toISOString().slice(0, 10);\n  const iso2 = d2.toISOString().slice(0, 10);\n  if (iso1 === iso2) return { status: 'MATCH', score: 100, notes: `Both documents show ${iso1}.` };\n  return { status: 'MISMATCH', score: 0, notes: `Dates differ: ${iso1} vs ${iso2}.` };\n}\n\nconst docs = $input.all().map(i => i.json);\nconst application_id = $('Normalize Input').first().json.application_id;\n\nconst comparisons = [];\nlet overall_status = 'PASSED';\n\nfor (let i = 0; i < docs.length; i++) {\n  for (let j = i + 1; j < docs.length; j++) {\n    const a = docs[i], b = docs[j];\n    const fa = a.extracted_fields || {};\n    const fb = b.extracted_fields || {};\n\n    const checks = [\n      { field_name: 'full_name', result: compareFuzzy(fa.full_name, fb.full_name, 90, 75) },\n      { field_name: 'address', result: compareFuzzy(fa.address, fb.address, 80, 60) },\n      { field_name: 'date_of_birth', result: compareDate(fa.date_of_birth, fb.date_of_birth) }\n    ];\n\n    for (const c of checks) {\n      comparisons.push({\n        loan_application_id: application_id,\n        document_intelligence_result_1_id: a.intelligence_result_id,\n        document_intelligence_result_2_id: b.intelligence_result_id,\n        field_name: c.field_name,\n        value_1: (fa[c.field_name] !== undefined && fa[c.field_name] !== null) ? String(fa[c.field_name]) : null,\n        value_2: (fb[c.field_name] !== undefined && fb[c.field_name] !== null) ? String(fb[c.field_name]) : null,\n        validation_status: c.result.status,\n        confidence_score: c.result.score,\n        validation_notes: c.result.notes,\n        ai_provider: null,\n        ai_model: null\n      });\n      if (c.result.status === 'MISMATCH') overall_status = 'FAILED';\n    }\n  }\n}\n\nif (docs.length < 2) {\n  overall_status = 'FAILED';\n  comparisons.push({\n    loan_application_id: application_id,\n    document_intelligence_result_1_id: docs[0] ? docs[0].intelligence_result_id : null,\n    document_intelligence_result_2_id: docs[0] ? docs[0].intelligence_result_id : null,\n    field_name: 'document_count',\n    value_1: String(docs.length),\n    value_2: null,\n    validation_status: 'MISSING',\n    confidence_score: null,\n    validation_notes: 'Fewer than 2 verified documents - nothing to cross-validate against.',\n    ai_provider: null,\n    ai_model: null\n  });\n}\n\nreturn [{ json: { application_id, overall_status, document_count: docs.length, comparisons } }];"
+      },
+      "id": "05b9ca1e-4fd4-4ca7-96b5-5bf6367fb080",
+      "name": "Build Comparison Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "comparisons",
+        "options": {
+          "destinationFieldName": ""
+        }
+      },
+      "id": "b0bfc681-73fd-4727-887e-9727e0f16394",
+      "name": "Split Comparison Rows",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "cross_validation_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "loan_application_id",
+              "fieldValue": "={{$json.loan_application_id}}"
+            },
+            {
+              "fieldId": "document_intelligence_result_1_id",
+              "fieldValue": "={{$json.document_intelligence_result_1_id}}"
+            },
+            {
+              "fieldId": "document_intelligence_result_2_id",
+              "fieldValue": "={{$json.document_intelligence_result_2_id}}"
+            },
+            {
+              "fieldId": "field_name",
+              "fieldValue": "={{$json.field_name}}"
+            },
+            {
+              "fieldId": "value_1",
+              "fieldValue": "={{$json.value_1}}"
+            },
+            {
+              "fieldId": "value_2",
+              "fieldValue": "={{$json.value_2}}"
+            },
+            {
+              "fieldId": "validation_status",
+              "fieldValue": "={{$json.validation_status}}"
+            },
+            {
+              "fieldId": "confidence_score",
+              "fieldValue": "={{$json.confidence_score}}"
+            },
+            {
+              "fieldId": "validation_notes",
+              "fieldValue": "={{$json.validation_notes}}"
+            }
+          ]
+        }
+      },
+      "id": "0bf24924-e5b5-4193-be0d-fe8f16cd8709",
+      "name": "Insert Cross Validation Rows",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const src = $('Build Comparison Rows').first().json;\nreturn [{ json: { application_id: src.application_id, overall_status: src.overall_status, document_count: src.document_count } }];"
+      },
+      "id": "131c999f-116c-49cf-8890-ebf24a2c0da6",
+      "name": "Collapse To Single Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -608,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$json.application_id}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "CROSS_VALIDATION_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF006_VERIFICATION"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE_FUZZY_MATCH"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { overall_status: $json.overall_status, document_count: $json.document_count } }}"
+            }
+          ]
+        }
+      },
+      "id": "68e9305f-6de4-4365-a64d-9b7f4b6e1005",
+      "name": "Log Agent Execution",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -384,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Collapse To Single Result').item.json.overall_status }}",
+              "operator": {
+                "operation": "notEquals",
+                "type": "string"
+              },
+              "rightValue": "FAILED"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "490aabcf-e222-48ef-9f73-026431622d18",
+      "name": "No Mismatch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "PASSED",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{$('Collapse To Single Result').item.json.application_id}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "950a94af-0329-4f18-8aa9-cab6a5467581",
+      "name": "Respond Passed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "FAILED",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{$('Collapse To Single Result').item.json.application_id}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b42ed614-f555-495f-bd1b-a6e93b3c2891",
+      "name": "Respond Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "WAITING",
+              "type": "string"
+            },
+            {
+              "name": "note",
+              "value": "Not all required checklist documents are VERIFIED yet. This is expected - WF-006 pings here after every single document, this workflow self-gates and exits quietly until the full set is ready.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a880cbd6-ccdc-4ea9-9e62-0f8558f18515",
+      "name": "Respond Waiting",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1504,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF008 Decision Agent",
+          "mode": "id",
+          "value": "NT9prpBK2VeKl7y9"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Collapse To Single Result').item.json.application_id }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d28a93d2-1301-49ec-88ea-e6f291c1ee39",
+      "name": "Trigger WF-008 Decision Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        64,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const comparisons = ($('Build Comparison Rows').first().json.comparisons || []).filter(c => c.validation_status === 'MISMATCH');\nconst reasons = comparisons.length > 0\n  ? comparisons.map(c => `${c.field_name}: \"${c.value_1}\" vs \"${c.value_2}\" (${c.validation_notes})`)\n  : ['Cross-validation reported a mismatch across your documents. A broker will review the details.'];\nreturn [{ json: { application_id: $('Collapse To Single Result').item.json.application_id, reasons } }];"
+      },
+      "id": "c5862ddb-d0ff-43aa-9c8e-198c74612b4e",
+      "name": "Build Reminder Reasons",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF009 Reminder Agent",
+          "mode": "id",
+          "value": "3V7WkllGokt39Mdw"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $json.application_id }}",
+            "reasons": "={{ $json.reasons }}",
+            "source": "WF007_CROSS_VALIDATION"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "4e2773bf-5ca6-4cc7-81dc-bc6d1b8a18ac",
+      "name": "Trigger WF-009 Reminder Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        400
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "application_id": "f0ec4f3c-4b2e-46ab-9cb7-9d32d2dc570c"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Check Readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Readiness": {
+      "main": [
+        [
+          {
+            "node": "All Required Docs Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "All Required Docs Verified?": {
+      "main": [
+        [
+          {
+            "node": "Get Verified Intelligence Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Waiting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Verified Intelligence Results": {
+      "main": [
+        [
+          {
+            "node": "Build Comparison Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Comparison Rows": {
+      "main": [
+        [
+          {
+            "node": "Split Comparison Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Comparison Rows": {
+      "main": [
+        [
+          {
+            "node": "Insert Cross Validation Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Cross Validation Rows": {
+      "main": [
+        [
+          {
+            "node": "Collapse To Single Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collapse To Single Result": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution": {
+      "main": [
+        [
+          {
+            "node": "No Mismatch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Mismatch?": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-008 Decision Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Reminder Reasons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-008 Decision Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reminder Reasons": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-009 Reminder Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-009 Reminder Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "986706d0-18a0-4bdc-bb06-f283c6cfb170",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "vHpeJU4RwQzMTgrb",
+  "tags": []
+}

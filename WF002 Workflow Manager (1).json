@@ -1,0 +1,1442 @@
+{
+  "name": "WF002 Workflow Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1568,
+        800
+      ],
+      "id": "7a70f923-067e-4713-a1a6-4912b7b093e3",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json.workflow || $json;\nconst workflow_instance_id = body.workflow_instance_id || $json.workflow_instance_id;\nif (!workflow_instance_id) {\n  throw new Error('workflow_instance_id missing from input payload');\n}\nreturn [{ json: {\n  workflow_instance_id,\n  trigger_source: body.trigger_source || 'SYSTEM',\n  triggered_by_agent_id: body.triggered_by_agent_id || null,\n  metadata: body.metadata || {}\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1344,
+        800
+      ],
+      "id": "82399cb5-6190-467d-a099-de58d2372838",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM workflow.start_execution($1,$2,$3,$4);",
+        "options": {
+          "queryReplacement": "=={{ [$json.workflow_instance_id, $json.trigger_source, $json.triggered_by_agent_id, JSON.stringify($json.metadata)] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1120,
+        800
+      ],
+      "id": "4d6ea98e-0643-42fc-bca6-c55cbb1fd04c",
+      "name": "Start Execution",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM workflow.start_step($1);",
+        "options": {
+          "queryReplacement": "=={{ [$('Start Execution').first().json.workflow_execution_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -896,
+        800
+      ],
+      "id": "73896a9a-56e3-4ef7-bb2c-6cc24e9e892e",
+      "name": "Start Step",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT ws.id AS workflow_step_id, ws.workflow_definition_id, ws.workflow_stage_id, wst.stage_code, ws.step_code, ws.step_name, ws.max_retries, aa.id AS ai_agent_id, aa.agent_code\nFROM workflow_steps ws\nJOIN workflow_stages wst ON wst.id = ws.workflow_stage_id\nLEFT JOIN ai_agents aa ON aa.id = ws.ai_agent_id\nWHERE ws.id = $1;",
+        "options": {
+          "queryReplacement": "=={{ [$json.workflow_step_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -688,
+        800
+      ],
+      "id": "e68c04a0-0910-4c09-8dd3-95bc4e8d3eb0",
+      "name": "Get Step Detail",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow.publish_event(\n  p_workflow_instance_id := $1,\n  p_workflow_execution_id := $2,\n  p_workflow_step_execution_id := $3,\n  p_workflow_definition_id := $4,\n  p_event_name := 'STEP_STARTED',\n  p_event_category := 'WORKFLOW'\n);",
+        "options": {
+          "queryReplacement": "=={{ [$('Normalize Input').first().json.workflow_instance_id, $('Start Execution').first().json.workflow_execution_id, $('Start Step').first().json.workflow_step_execution_id, $('Get Step Detail').first().json.workflow_definition_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -464,
+        800
+      ],
+      "id": "d7099c39-99f0-4884-9d91-638ab4f0167d",
+      "name": "Publish STEP_STARTED",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "CONVERSATION_MANAGER",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "58aaa73e-130d-4d59-aba2-3d0edd67ca5f"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Conversation Manager"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "DOCUMENT_INTAKE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "14cd0754-234d-446b-a6fa-b890db17b111"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Document Intake"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "OCR_AGENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "a44e3684-9f3a-4634-8db3-c08b307c4429"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "OCR Agent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "DOCUMENT_INTELLIGENCE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "3a08ac56-b973-4115-b7f7-d75bea19a085"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Document Intelligence"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "VERIFICATION_AGENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0e7255ab-aecd-43ae-9eec-15350c83d305"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Verification Agent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "CROSS_VALIDATION_AGENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "7a88ab69-8cbb-4767-8ac2-6522869ac31b"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Cross Validation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "DECISION_AGENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "20582430-79b1-42f6-8672-7f42659de6cb"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Decision Agent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "REMINDER_AGENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "97034929-6fce-4833-826d-815b2e1cca31"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reminder Agent"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Get Step Detail').item.json.agent_code }}",
+                    "rightValue": "BROKER_NOTIFICATION",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c824ea58-0f78-43d9-ac52-31eedb361ebd"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Broker Notification"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -256,
+        800
+      ],
+      "id": "aa5dcb69-4eb6-43d4-a011-88b392a5e850",
+      "name": "Route To Agent"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Document Intake n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        208
+      ],
+      "id": "41904478-1a32-47b8-929f-4ee2e4adba4d",
+      "name": "STUB Document Intake (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real OCR Agent n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        400
+      ],
+      "id": "c11ddf29-afbb-46cf-879a-cc2f5dfd4128",
+      "name": "STUB OCR Agent (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Document Intelligence n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        608
+      ],
+      "id": "12ed35a5-eb1e-4c49-b893-c751872e6783",
+      "name": "STUB Document Intelligence (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Verification Agent n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        800
+      ],
+      "id": "28a077d9-bcd3-49bb-9877-36cd77ed7368",
+      "name": "STUB Verification Agent (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Cross Validation n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        1008
+      ],
+      "id": "1d5ad51b-619e-4d50-bc27-9b04e8003e0f",
+      "name": "STUB Cross Validation (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Decision Agent n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        1200
+      ],
+      "id": "701a577c-ea28-4a58-abf2-9d7d39d91239",
+      "name": "STUB Decision Agent (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Reminder Agent n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        1408
+      ],
+      "id": "ef83a340-b311-4ab6-8b89-1ea5e4abf183",
+      "name": "STUB Reminder Agent (TODO wire real WF)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Broker Notification n8n workflow call",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        1600
+      ],
+      "id": "6ba45e51-87c0-4eda-be80-5f22c9c979cf",
+      "name": "STUB Broker Notification (TODO wire real WF)"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        272,
+        800
+      ],
+      "id": "eec531cb-a1d8-4d1e-a781-a93e7bbcfbb3",
+      "name": "Merge Agent Response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "SUCCESS",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        800
+      ],
+      "id": "0b3ac159-dce0-40cf-812e-164e15200c2d",
+      "name": "Downstream Success?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM workflow.complete_step($1,$2);",
+        "options": {
+          "queryReplacement": "=={{ [$('Start Step').first().json.workflow_step_execution_id, JSON.stringify($json.payload || {})] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        704,
+        688
+      ],
+      "id": "927cb561-e9d5-4342-96a6-cf0d17e09b0a",
+      "name": "Complete Step",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE workflow_instances\nSET current_step = $2, current_stage = $3, last_activity_at = now()\nWHERE id = $1;",
+        "options": {
+          "queryReplacement": "=={{ [$('Normalize Input').first().json.workflow_instance_id, $('Get Step Detail').first().json.step_code, $('Get Step Detail').first().json.stage_code] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        688
+      ],
+      "id": "59aec5b6-945a-40c2-9aac-5b8db65a1a4c",
+      "name": "Update Workflow Instance",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow.publish_event(\n  p_workflow_instance_id := $1,\n  p_workflow_execution_id := $2,\n  p_workflow_step_execution_id := $3,\n  p_workflow_definition_id := $4,\n  p_event_name := 'STEP_COMPLETED',\n  p_event_category := 'WORKFLOW'\n);",
+        "options": {
+          "queryReplacement": "=={{ [$('Normalize Input').first().json.workflow_instance_id, $('Start Execution').first().json.workflow_execution_id, $('Start Step').first().json.workflow_step_execution_id, $('Get Step Detail').first().json.workflow_definition_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1152,
+        688
+      ],
+      "id": "c7ce363e-3984-4e4b-8c95-2bdd3f657581",
+      "name": "Publish STEP_COMPLETED",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $('Complete Step').first().json.is_workflow_complete }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        688
+      ],
+      "id": "39e132db-6c43-4f2d-a23d-a2cbd90e27b1",
+      "name": "Workflow Complete?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow.publish_event(\n  p_workflow_instance_id := $1,\n  p_workflow_execution_id := $2,\n  p_workflow_definition_id := $3,\n  p_event_name := 'WORKFLOW_COMPLETED',\n  p_event_category := 'WORKFLOW'\n);",
+        "options": {
+          "queryReplacement": "=={{ [$('Normalize Input').first().json.workflow_instance_id, $('Start Execution').first().json.workflow_execution_id, $('Get Step Detail').first().json.workflow_definition_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1584,
+        592
+      ],
+      "id": "cdf9b484-3231-4d94-8205-d85132f5e5a1",
+      "name": "Publish WORKFLOW_COMPLETED",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "workflow_status",
+              "value": "COMPLETED",
+              "type": "string"
+            },
+            {
+              "name": "workflow_instance_id",
+              "value": "={{ $('Normalize Input').first().json.workflow_instance_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1808,
+        592
+      ],
+      "id": "cd9ac839-52d3-46c7-8d22-6f1d5fc83568",
+      "name": "Standard Response Success"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM workflow.fail_step($1,$2,$3);",
+        "options": {
+          "queryReplacement": "=={{ [$('Start Step').first().json.workflow_step_execution_id, ($json.error_message || 'Downstream agent returned FAILED'), JSON.stringify($json.payload || {})] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        704,
+        928
+      ],
+      "id": "55dd0c6b-5f6f-437c-9732-7b0f68b1c2d4",
+      "name": "Fail Step",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT wse.attempt_number, ws.max_retries\nFROM workflow_step_executions wse\nJOIN workflow_steps ws ON ws.id = wse.workflow_step_id\nWHERE wse.id = $1;",
+        "options": {
+          "queryReplacement": "=={{ [$('Start Step').first().json.workflow_step_execution_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        928
+      ],
+      "id": "0cc15a6d-a239-45f3-b55b-3305d6d0e59d",
+      "name": "Check Retry",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.attempt_number }}",
+              "rightValue": "={{ $json.max_retries }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1152,
+        928
+      ],
+      "id": "b8fd2b6a-c6a1-46e0-bbbf-cfbb383594b4",
+      "name": "Retry Available?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT workflow.publish_event(\n  p_workflow_instance_id := $1,\n  p_workflow_execution_id := $2,\n  p_workflow_step_execution_id := $3,\n  p_workflow_definition_id := $4,\n  p_event_name := 'WORKFLOW_FAILED',\n  p_event_category := 'WORKFLOW'\n);",
+        "options": {
+          "queryReplacement": "=={{ [$('Normalize Input').first().json.workflow_instance_id, $('Start Execution').first().json.workflow_execution_id, $('Start Step').first().json.workflow_step_execution_id, $('Get Step Detail').first().json.workflow_definition_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1360,
+        1024
+      ],
+      "id": "48dcc1df-229d-4cb9-97e5-5247f05a448c",
+      "name": "Publish WORKFLOW_FAILED",
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "FAILED",
+              "type": "string"
+            },
+            {
+              "name": "workflow_status",
+              "value": "ESCALATED",
+              "type": "string"
+            },
+            {
+              "name": "workflow_instance_id",
+              "value": "={{ $('Normalize Input').first().json.workflow_instance_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1584,
+        1024
+      ],
+      "id": "c5470cad-9281-4858-84c3-6e272fbdc0ce",
+      "name": "Standard Response Failed"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "payload",
+              "value": "={{ { workflow_instance_id: $('Normalize Input').first().json.workflow_instance_id } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1584,
+        800
+      ],
+      "id": "fba67221-12bf-4936-8a0c-b8241fa4c218",
+      "name": "Prepare Recursion Input"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $workflow.id }}",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1792,
+        800
+      ],
+      "id": "78f85801-4829-4084-ba78-a5512d2bd379",
+      "name": "Continue Workflow (Recurse)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string",
+              "id": "252cbb49-6391-4015-a898-721068fec8a4"
+            },
+            {
+              "name": "payload",
+              "value": "={}",
+              "type": "object",
+              "id": "ee8010ed-d790-4caf-8354-311c567fff1f"
+            },
+            {
+              "name": "note",
+              "value": "STUB - replace with real Document Intake n8n workflow call",
+              "type": "string",
+              "id": "89bd5fe8-61cc-4d1c-9ff9-a5dd518cd0ab"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        0,
+        16
+      ],
+      "id": "33193672-5b54-4eff-9395-cece8115391f",
+      "name": "STUB Conversation Manager (TODO wire real instance)"
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "workflow_instance_id": "077641e1-b3b2-4ba2-9dfa-9fd3929ad710",
+          "workflow_action": "START_WORKFLOW",
+          "trigger_source": "MANUAL_TEST"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Route To Agent": {
+      "main": [
+        [
+          {
+            "node": "STUB Conversation Manager (TODO wire real instance)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Document Intake (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB OCR Agent (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Document Intelligence (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Verification Agent (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Cross Validation (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Decision Agent (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Reminder Agent (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STUB Broker Notification (TODO wire real WF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Document Intake (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB OCR Agent (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Document Intelligence (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Verification Agent (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Cross Validation (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Decision Agent (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Reminder Agent (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Broker Notification (TODO wire real WF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Downstream Success?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Downstream Success?": {
+      "main": [
+        [
+          {
+            "node": "Complete Step",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Step": {
+      "main": [
+        [
+          {
+            "node": "Update Workflow Instance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Workflow Instance": {
+      "main": [
+        [
+          {
+            "node": "Publish STEP_COMPLETED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish STEP_COMPLETED": {
+      "main": [
+        [
+          {
+            "node": "Workflow Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Complete?": {
+      "main": [
+        [
+          {
+            "node": "Publish WORKFLOW_COMPLETED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Recursion Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish WORKFLOW_COMPLETED": {
+      "main": [
+        [
+          {
+            "node": "Standard Response Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fail Step": {
+      "main": [
+        [
+          {
+            "node": "Check Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Retry": {
+      "main": [
+        [
+          {
+            "node": "Retry Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Available?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Recursion Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Publish WORKFLOW_FAILED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish WORKFLOW_FAILED": {
+      "main": [
+        [
+          {
+            "node": "Standard Response Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Start Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Execution": {
+      "main": [
+        [
+          {
+            "node": "Start Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Step": {
+      "main": [
+        [
+          {
+            "node": "Get Step Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Step Detail": {
+      "main": [
+        [
+          {
+            "node": "Publish STEP_STARTED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish STEP_STARTED": {
+      "main": [
+        [
+          {
+            "node": "Route To Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Recursion Input": {
+      "main": [
+        [
+          {
+            "node": "Continue Workflow (Recurse)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "STUB Conversation Manager (TODO wire real instance)": {
+      "main": [
+        [
+          {
+            "node": "Merge Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "66c2f74e-d21f-40e4-8c4d-8d9e38ee46e3",
+  "meta": {
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "KZHKSiuRlbvYJfGV",
+  "tags": []
+}

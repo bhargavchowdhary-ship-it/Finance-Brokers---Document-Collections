@@ -1,0 +1,298 @@
+Deliverable 7 — Shared Payload Library & Common Schemas
+
+This is one of the most overlooked parts of AI platforms, but it's something every mature engineering team does.
+
+Why do we need it?
+
+Currently, every workflow defines its own JSON.
+
+For example:
+
+Conversation Manager sends
+
+{
+  "borrower_id": "...",
+  "application_id": "..."
+}
+
+Document Intake sends
+
+{
+  "applicationId": "...",
+  "borrower": "...",
+  "loanId": "..."
+}
+
+OCR Agent sends something else.
+
+After 10 agents, you'll have 10 different payload formats.
+
+That becomes a maintenance nightmare.
+
+Instead, we create one shared payload library.
+
+Every workflow imports and uses the same objects.
+
+Project Structure
+
+I recommend adding a new folder to your repository:
+
+Mortgage-AI-Agent/
+
+shared/
+
+    schemas/
+
+        borrower.schema.json
+
+        application.schema.json
+
+        attachment.schema.json
+
+        document.schema.json
+
+        conversation.schema.json
+
+        workflow.schema.json
+
+        execution.schema.json
+
+        response.schema.json
+
+This complements the project structure you've already started organizing.
+
+Schema 1 — Borrower
+
+Every workflow receives the exact same Borrower object.
+
+{
+  "borrower": {
+    "id": "",
+    "first_name": "",
+    "last_name": "",
+    "email": "",
+    "phone": "",
+    "broker_id": ""
+  }
+}
+
+Maps directly to your borrowers table.
+
+Schema 2 — Broker
+{
+  "broker": {
+    "id": "",
+    "name": "",
+    "company_name": "",
+    "email": "",
+    "phone": "",
+    "timezone": ""
+  }
+}
+Schema 3 — Loan Application
+{
+  "application": {
+    "id": "",
+    "application_number": "",
+    "loan_type": "",
+    "loan_purpose": "",
+    "application_status": "",
+    "requested_amount": 0
+  }
+}
+
+Uses the fields already defined in your loan_applications table.
+
+Schema 4 — Attachment
+
+Instead of every workflow inventing attachment fields:
+
+{
+  "attachment": {
+    "file_name": "",
+    "mime_type": "",
+    "extension": "",
+    "size_bytes": 0,
+    "download_url": "",
+    "external_file_id": "",
+    "channel": ""
+  }
+}
+
+Conversation Manager
+
+↓
+
+Document Intake
+
+↓
+
+OCR
+
+All receive exactly this object.
+
+Schema 5 — Document
+{
+  "document": {
+    "document_id": "",
+    "document_version_id": "",
+    "document_type": "",
+    "processing_status": "",
+    "storage_path": ""
+  }
+}
+
+Maps cleanly to documents and document_versions.
+
+Schema 6 — Conversation Context
+
+Every conversational workflow gets this object.
+
+{
+  "conversation": {
+    "conversation_session_id": "",
+    "channel": "",
+    "message_id": "",
+    "message_text": "",
+    "received_at": "",
+    "history": []
+  }
+}
+
+This aligns with your conversation_sessions and messages tables.
+
+Schema 7 — Workflow Context
+{
+  "workflow": {
+    "workflow_execution_id": "",
+    "workflow_instance_id": "",
+    "workflow_name": "",
+    "current_stage": "",
+    "current_step": "",
+    "status": ""
+  }
+}
+
+Uses workflow_instances and workflow_executions.
+
+Schema 8 — Execution Context
+
+Every AI agent should know where it came from.
+
+{
+  "execution": {
+    "execution_id": "",
+    "parent_execution_id": "",
+    "workflow_execution_id": "",
+    "agent_name": "",
+    "retry_count": 0,
+    "started_at": ""
+  }
+}
+
+This matches ai_agent_executions and agent_execution_events.
+
+Schema 9 — Standard Response
+
+Every workflow returns the same envelope.
+
+{
+  "status": "SUCCESS",
+
+  "contract_version": "1.0",
+
+  "workflow": "",
+
+  "execution_id": "",
+
+  "payload": {},
+
+  "error": null
+}
+
+Or, on failure:
+
+{
+  "status": "FAILED",
+
+  "contract_version": "1.0",
+
+  "workflow": "",
+
+  "execution_id": "",
+
+  "payload": null,
+
+  "error": {
+    "code": "",
+    "message": "",
+    "retryable": false
+  }
+}
+
+This means every parent workflow can process child workflow responses consistently.
+
+Naming Standards
+
+To avoid inconsistency, adopt these conventions from day one:
+
+JSON keys: snake_case
+UUID fields: <entity>_id
+Timestamps: ISO-8601 UTC
+Enum values: UPPER_SNAKE_CASE
+Boolean fields: is_..., has_..., requires_...
+
+Example:
+
+{
+  "document_id": "...",
+  "is_password_protected": true,
+  "requires_human_review": false
+}
+Engineering Recommendation
+
+This is where I'd make one important improvement to the overall architecture.
+
+Rather than storing these schemas only as documentation, create a Shared Contracts folder in your repository:
+
+shared/
+
+    contracts/
+        contract_v1.md
+
+    schemas/
+        borrower.schema.json
+        broker.schema.json
+        application.schema.json
+        attachment.schema.json
+        document.schema.json
+        conversation.schema.json
+        workflow.schema.json
+        execution.schema.json
+        response.schema.json
+
+    enums/
+        application_status.md
+        document_status.md
+        workflow_status.md
+
+Then every AI agent and every n8n workflow references these shared definitions instead of redefining payloads. When you need to add a field—such as preferred_contact_method to the Borrower schema—you update it once and every workflow can adopt the new version in a controlled way.
+
+Updated Roadmap
+
+We've now completed the entire architecture and contract layer:
+
+Phase	Status
+Database Design	✅
+AI Agent Responsibilities	✅
+System Prompts	✅
+Workflow Architecture	✅
+Database Query Contracts	✅
+n8n Implementation Specification	✅
+AI Agent Data Contracts	✅
+Shared Payload Library & Common Schemas	✅
+Next Deliverable
+
+The next logical milestone is where we transition from design to implementation:
+
+Deliverable 8 — Build the Conversation Manager n8n Workflow (WF-001)

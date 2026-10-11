@@ -1,0 +1,131 @@
+{
+  "name": "WF011 Checklist Follow-up (10 min)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "557a9af3-4f07-4196-b646-82931d3ef85b",
+      "name": "Every 10 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT la.id AS application_id, la.application_number, b.first_name, string_agg(dt.name, ', ' ORDER BY dc.request_sequence) AS missing_docs, count(*) AS missing_count FROM document_checklists dc JOIN loan_applications la ON la.id = dc.application_id JOIN application_borrowers ab ON ab.application_id = la.id AND ab.is_primary = true JOIN borrowers b ON b.id = ab.borrower_id JOIN document_types dt ON dt.id = dc.document_type_id WHERE dc.status IN ('REQUESTED','PENDING') AND dc.is_required = true AND b.telegram_chat_id IS NOT NULL GROUP BY la.id, la.application_number, b.first_name;",
+        "options": {}
+      },
+      "id": "6f86d564-63f4-420e-a285-0c5d9825719e",
+      "name": "Get Applications With Pending Docs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(i => {\n  const j = i.json;\n  const reasonText = 'You still need to submit the following document(s) for ' + j.application_number + ': ' + j.missing_docs + '. Please upload each one here in this chat (a clear photo or PDF is fine).';\n  return { json: { application_id: j.application_id, reasons: [reasonText], source: 'SCHEDULED_FOLLOWUP_10MIN' } };\n});"
+      },
+      "id": "dc035600-11e7-4586-96fd-f057b8da97a6",
+      "name": "Build Reminder Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "3V7WkllGokt39Mdw"
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "33011957-947d-4576-8f7d-1aa7ab3d75c2",
+      "name": "Trigger WF-009 Reminder Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 10 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Applications With Pending Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Applications With Pending Docs": {
+      "main": [
+        [
+          {
+            "node": "Build Reminder Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reminder Payload": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-009 Reminder Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "fb27df08-326b-450b-b9ef-f9ce6e62afe7",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "uy0f30HSfHR5X49y",
+  "tags": []
+}

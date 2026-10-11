@@ -1,0 +1,2531 @@
+{
+  "name": "WF001 Conversation Manager",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": "={{ false }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -5072,
+        800
+      ],
+      "id": "fa18f3b0-6b10-4442-8296-b24f905d0270",
+      "name": "Telegram Trigger",
+      "webhookId": "c957f9e6-64cf-4456-9717-b7f07eed0acb",
+      "alwaysOutputData": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst msg = input.message;\n\nlet attachments = [];\nlet messageType = \"text\";\n\nif (msg.document) {\n  messageType = \"document\";\n  attachments.push({\n    file_id: msg.document.file_id,\n    file_name: msg.document.file_name || \"document\",\n    mime_type: msg.document.mime_type || \"application/octet-stream\",\n    file_size: msg.document.file_size || 0\n  });\n} else if (msg.photo && msg.photo.length > 0) {\n  messageType = \"photo\";\n  const largest = msg.photo[msg.photo.length - 1];\n  attachments.push({\n    file_id: largest.file_id,\n    file_name: `photo_${largest.file_id}.jpg`,\n    mime_type: \"image/jpeg\",\n    file_size: largest.file_size || 0\n  });\n} else if (msg.text) {\n  messageType = \"text\";\n}\n\nreturn [\n  {\n    json: {\n      channel: \"telegram\",\n      message_id: String(msg.message_id),\n      conversation_id: String(msg.chat.id),\n      sender: {\n        id: String(msg.from.id),\n        name: `${msg.from.first_name || \"\"} ${msg.from.last_name || \"\"}`.trim()\n      },\n      message: {\n        type: messageType,\n        text: msg.text || msg.caption || \"\"\n      },\n      timestamp: msg.date,\n      attachments: attachments,\n      metadata: {\n        telegram_update_id: input.update_id\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4864,
+        800
+      ],
+      "id": "36751469-41f5-4cb5-a191-2688344ccd5b",
+      "name": "Normalize Telegram Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "const borrower = $('Borrower').first().json;\nconst broker = $('Broker').first().json;\nconst applicationBorrower = $('Application Borrower').first().json;\nconst loanApplication = $('Loan Application').first().json;\nconst conversationSession = $('Conversation Session').first().json;\nconst workflowInstance = $('Workflow Instance').first().json;\n\nconst checklistRows = $('Document Checklist').all().map(i => i.json);\nconst documentTypes = $('Document Type').all().map(i => i.json);\n\nconst typeById = {};\nfor (const t of documentTypes) typeById[t.id] = t;\n\nconst requiredDocuments = checklistRows.map(c => {\n  const t = typeById[c.document_type_id] || {};\n  return {\n    checklist_id: c.id,\n    document_type_id: c.document_type_id,\n    document_type_code: t.code || null,\n    document_type_name: t.name || null,\n    status: c.status,\n    is_required: c.is_required\n  };\n});\n\nconst conversationHistory = $('Recent Conversation History').all().map(i => i.json);\nconst telegramContext = $('Extract Telegram Context').first().json;\n\nreturn [\n  {\n    json: {\n      borrower,\n      broker,\n      application_borrower: applicationBorrower,\n      loan_application: loanApplication,\n      conversation_session: conversationSession,\n      workflow_instance: workflowInstance,\n      required_documents: requiredDocuments,\n      conversation_history: conversationHistory,\n\n      latest_message: {\n        channel: telegramContext.channel,\n        text: telegramContext.message.text,\n        message_type: telegramContext.message.type,\n        sender_id: telegramContext.sender.id,\n        sender_name: telegramContext.sender.name,\n        conversation_id: telegramContext.conversation_id,\n        message_id: telegramContext.message_id,\n        timestamp: telegramContext.timestamp,\n        attachments: telegramContext.attachments || []\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        704
+      ],
+      "id": "9406e922-064b-412a-9f85-dc5ac2f0083b",
+      "name": "Build Conversation Context"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "messages",
+        "limit": 15,
+        "orderBy": "created_at",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "application_id",
+              "condition": "eq",
+              "keyValue": "={{$('Loan Application').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2576,
+        704
+      ],
+      "id": "3e08ac1b-4075-4908-8be8-5bdada20879d",
+      "name": "Conversation History",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "document_types",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2784,
+        704
+      ],
+      "id": "d512f8d7-c25c-4dd2-831d-ab30c1894c4f",
+      "name": "Document Type",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "workflow_instances",
+        "limit": 1,
+        "orderBy": "updated_at.desc",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "loan_application_id",
+              "condition": "eq",
+              "keyValue": "={{$('Loan Application').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3200,
+        704
+      ],
+      "id": "9145fedd-fe42-4a5a-8725-c92ae3522b0a",
+      "name": "Workflow Instance",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "conversation_sessions",
+        "limit": 1,
+        "orderBy": "updated_at.desc",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "application_id",
+              "condition": "eq",
+              "keyValue": "={{$('Loan Application').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3408,
+        704
+      ],
+      "id": "bf717651-5cd6-4afe-8973-265892bf40b7",
+      "name": "Conversation Session",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "loan_applications",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$('Application Borrower').item.json.application_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3616,
+        704
+      ],
+      "id": "6e30ed99-b8d2-4f40-9c63-411c49e10dc5",
+      "name": "Loan Application",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "application_borrowers",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "borrower_id",
+              "condition": "eq",
+              "keyValue": "={{$('Borrower').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3824,
+        704
+      ],
+      "id": "4ef8ac27-ae43-457b-aeb3-9168aabdcd80",
+      "name": "Application Borrower",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c75b31b8-1f70-4c03-9d9b-98a39e417d7c",
+              "leftValue": "={{$json.id}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -4032,
+        800
+      ],
+      "id": "c66abdc6-0f92-473e-914e-41d649b8cf65",
+      "name": "Borrower Found?"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "borrowers",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_chat_id",
+              "condition": "eq",
+              "keyValue": "={{$json.conversation_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -4240,
+        800
+      ],
+      "id": "745f67d7-d00f-47c0-b760-78ad3b048c32",
+      "name": "Borrower",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// MVP: single channel (Telegram). Passthrough today.\n// When WhatsApp/other channels are added post-MVP, this node\n// resolves which borrower lookup field to use per channel.\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4448,
+        800
+      ],
+      "id": "d004f8f0-872e-4d2b-b4f0-07d85826d330",
+      "name": "Resolve Borrower Channel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst requiredFields = [\n  \"channel\",\n  \"message_id\",\n  \"conversation_id\",\n  \"sender\",\n  \"message\",\n  \"timestamp\"\n];\n\nfor (const field of requiredFields) {\n  if (!data[field]) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\nif (!data.sender.id) {\n  throw new Error(\"Missing sender.id\");\n}\n\nif (!data.sender.name) {\n  throw new Error(\"Missing sender.name\");\n}\n\nconst allowedTypes = [\"text\", \"document\", \"photo\"];\nif (!allowedTypes.includes(data.message.type)) {\n  throw new Error(`Unsupported message type: ${data.message.type}`);\n}\n\nconst hasText = data.message.text && data.message.text.trim() !== \"\";\nconst hasAttachment = data.attachments && data.attachments.length > 0;\n\nif (!hasText && !hasAttachment) {\n  throw new Error(\"Empty message received\");\n}\n\nreturn [\n  {\n    json: {\n      ...data,\n      validation: {\n        status: \"passed\",\n        validated_at: new Date().toISOString()\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4656,
+        800
+      ],
+      "id": "fcf35da7-34d9-4c5c-8175-88f42d780ee5",
+      "name": "Extract Telegram Context"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$('Extract Telegram Context').item.json.conversation_id}}",
+        "text": "I couldn't find your record. If your broker gave you a link code, please send it now to connect your account.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3824,
+        896
+      ],
+      "id": "8208b273-1f82-4b61-9767-4b4b6df81bae",
+      "name": "Notify Borrower Not Found",
+      "webhookId": "74ec040a-049b-4a97-9761-f9d5969fc5b0",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "document_checklists",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "application_id",
+              "condition": "eq",
+              "keyValue": "={{$('Loan Application').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2992,
+        704
+      ],
+      "id": "ab34f599-cc9c-4303-b565-0881c17037b0",
+      "name": "Document Checklist",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -1984,
+        944
+      ],
+      "id": "97c449fc-2371-4456-ade2-0e4d46114d0a",
+      "name": "OpenAI Chat Model",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000,
+      "credentials": {
+        "openAiApi": {
+          "id": "lpIEEhIqDSzxZl1P",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are processing a NEW borrower message.\n\n==================================================\nLATEST MESSAGE\n==================================================\n\nChannel:\n{{ $json.latest_message.channel }}\n\nBorrower:\n{{ $json.latest_message.sender_name }}\n\nMessage:\n{{ $json.latest_message.text }}\n\n==================================================\nCONVERSATION CONTEXT\n==================================================\n\n{{ JSON.stringify($json, null, 2) }}\n\n==================================================\nTASK\n==================================================\n\n1. Understand ONLY the latest borrower message.\n2. Use the conversation context to make your decision.\n3. Return ONLY valid JSON matching the required schema.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "# DECISION PRIORITY\n\nAlways classify the intent from the latest borrower message.\n\nThe latest borrower message is the highest priority.\n\nConversation history is only additional context.\n\nNever infer intent from older messages if the latest message is different.\n\n# ROLE\n\nYou are the Conversation Manager AI Agent for an Australian Mortgage Broker AI Platform.\n\nYour responsibility is ONLY to manage conversations between borrowers and brokers.\n\nYou are NOT a mortgage advisor.\n\nYou are NOT an OCR agent.\n\nYou are NOT a verification agent.\n\nYou are NOT a document intelligence agent.\n\nYou are NOT a decision-making agent.\n\nYou are the communication and routing layer of the platform.\n\n--------------------------------------------------\n\n# PRIMARY OBJECTIVE\n\nYour objective is to:\n\n• Receive incoming borrower messages.\n• Understand borrower intent.\n• Maintain conversation context.\n• Respond politely and professionally.\n• Route requests to the correct AI Agent.\n• Never perform another agent's responsibility.\n\n--------------------------------------------------\n\n# TONE\n\nAlways communicate like an experienced Australian mortgage broker assistant.\n\nBe:\n\n• Friendly\n• Professional\n• Polite\n• Calm\n• Clear\n• Short\n\nAvoid:\n\n• Long explanations\n• Marketing language\n• Technical terms\n• Legal advice\n• Financial advice\n\nKeep replies under 80 words unless instructed otherwise.\n\n--------------------------------------------------\n\n# AVAILABLE CONTEXT\n\nYou will receive:\n\nBroker Information\n\nBorrower Information\n\nLoan Application\n\nCurrent Workflow Stage\n\nConversation History\n\nDocument Checklist\n\nPending Documents\n\nPreviously Uploaded Documents\n\nCurrent AI Workflow Status\n\nCurrent Date & Time\n\nCommunication Channel\n\n--------------------------------------------------\n\n# RESPONSIBILITIES\n\nYou may ONLY perform the following responsibilities.\n\n1. Greeting borrowers\n\n2. Answer simple conversation questions\n\n3. Detect borrower intent\n\n4. Route work to the correct AI Agent\n\n5. Inform borrower about workflow progress\n\n6. Request missing documents\n\n7. Send reminder messages\n\n8. Confirm receipt of documents\n\n9. Escalate to broker when required\n\n--------------------------------------------------\n\n# NEVER DO\n\nNever:\n\nRead PDF documents\n\nExtract document information\n\nPerform OCR\n\nVerify documents\n\nCompare documents\n\nValidate identities\n\nValidate addresses\n\nValidate income\n\nCalculate borrowing capacity\n\nProvide legal advice\n\nProvide tax advice\n\nProvide financial advice\n\nApprove loans\n\nReject loans\n\nGuess answers\n\nHallucinate information\n\nIf another AI Agent is required, route the request.\n\n--------------------------------------------------\n\n# SUPPORTED INTENTS\n\nDetect ONLY one primary intent.\n\nGreeting\n\nDocument Upload\n\nPending Documents\n\nApplication Status\n\nGeneral Question\n\nDocument Question\n\nReschedule Appointment\n\nHuman Assistance\n\nGoodbye\n\nUnknown\n\n--------------------------------------------------\n\n# ROUTING RULES\n\nGreeting\n→ Respond directly\n\nDocument Upload\n→ Route to Document Intake Agent\n\nPending Documents\n→ Route to Checklist Manager\n\nApplication Status\n→ Route to Workflow Manager\n\nDocument Question\n→ Route to Verification Agent\n\nReschedule Appointment\n→ Route to Calendar Agent\n\nHuman Assistance\n→ Notify Broker\n\nUnknown\n→ Human Escalation\n\n--------------------------------------------------\n\n# RESPONSE RULES\n\nAlways:\n\nAcknowledge the borrower.\n\nAnswer only what is known.\n\nNever invent information.\n\nNever assume documents were received.\n\nNever assume verification is complete.\n\nNever say \"everything looks good\" unless supplied in context.\n\n--------------------------------------------------\n\n# DOCUMENT RULES\n\nWhen a borrower uploads a file:\n\nAcknowledge receipt.\n\nDo NOT analyse the file.\n\nDo NOT describe the file.\n\nDo NOT mention extracted information.\n\nRoute to Document Intake Agent.\n\nExample:\n\n\"Thanks. We've received your document and it's now being processed.\"\n\n--------------------------------------------------\n\n# MISSING DOCUMENT RULES\n\nWhen borrowers ask:\n\n\"What documents are pending?\"\n\nUse ONLY the supplied checklist.\n\nNever guess.\n\nIf checklist is unavailable:\n\n\"I couldn't retrieve your checklist right now. I've notified the broker to assist you.\"\n\n--------------------------------------------------\n\n# STATUS RULES\n\nWhen borrowers ask:\n\n\"What's happening?\"\n\nUse ONLY workflow status supplied in context.\n\nNever estimate.\n\nNever predict completion times.\n\n--------------------------------------------------\n\n# ESCALATION RULES\n\nEscalate immediately if:\n\nBorrower requests financial advice.\n\nBorrower requests legal advice.\n\nBorrower disputes verification results.\n\nBorrower becomes frustrated.\n\nBorrower asks for broker.\n\nBorrower asks questions outside available context.\n\nConfidence is low.\n\n--------------------------------------------------\n\n# MEMORY RULES\n\nNever ask again for information already available.\n\nUse conversation history.\n\nUse borrower information.\n\nUse workflow context.\n\nMaintain natural conversations.\n\n--------------------------------------------------\n\n# COMMUNICATION STYLE\n\nGood\n\n\"Thanks, we've received your passport.\"\n\n\"Your documents are currently being processed.\"\n\n\"We're waiting for your latest payslip.\"\n\n\"I've notified your broker.\"\n\nAvoid\n\n\"Based on my analysis...\"\n\n\"I believe...\"\n\n\"I think...\"\n\n\"It appears...\"\n\n\"Probably...\"\n\n\"Maybe...\"\n\n--------------------------------------------------\n\n# ERROR HANDLING\n\nIf information is unavailable:\n\nState that politely.\n\nEscalate if necessary.\n\nNever fabricate an answer.\n\n--------------------------------------------------\n\n# DOCUMENT CLASSIFICATION RULES\n\nWhen intent is DOCUMENT_UPLOAD:\n\nYou will be given required_documents, a list of checklist items,\neach with a document_type_code.\n\nSet metadata.document_type to the document_type_code that best\nmatches what the borrower said or attached (e.g. borrower says\n\"here's my passport\" -> match the PASSPORT code).\n\nOnly choose from codes present in required_documents with\nstatus PENDING or REQUESTED.\n\nIf you cannot confidently match one, set metadata.document_type\nto \"UNCLASSIFIED\" and set requires_human to true.\n\nNever invent a document_type_code that isn't in required_documents.\n\n--------------------------------------------------\n\n# OUTPUT RULES\n\nReturn ONLY valid JSON.\n\nNever return Markdown.\n\nNever explain your reasoning.\n\nNever wrap the JSON inside another object.\n\nNever return JSON as a string.\n\nDo NOT return:\n\n{\n   \"output\": {...}\n}\n\nDo NOT return:\n\n\"{\\\"intent\\\":\\\"GREETING\\\"}\"\n\nReturn ONLY this object:\n\n{\n   ...\n}\n\nEvery field is mandatory.\n\nconfidence must be between 0 and 1.\n\nreply must contain the exact message to send to the borrower.\n\n# OUTPUT FORMAT\n\nReturn ONLY valid JSON.\n\n{\n  \"intent\": \"GREETING\",\n  \"confidence\": 0.99,\n\n  \"reply\": \"Hello John. How can I help you with your home loan application today?\",\n\n  \"route_to\": \"SELF\",\n\n  \"requires_human\": false,\n\n  \"reason\": \"Borrower sent a greeting.\",\n\n  \"priority\": \"LOW\",\n\n  \"conversation_status\": \"ACTIVE\",\n\n  \"next_action\": \"WAIT_FOR_BORROWER\",\n\n  \"workflow_update\": false,\n\n  \"session_update\": false,\n\n  \"metadata\": {\n    \"document_type\": \"\",\n    \"document_category\": \"\",\n    \"document_name\": \"\",\n    \"document_id\": \"\",\n    \"appointment_required\": false,\n    \"appointment_date\": \"\",\n    \"appointment_time\": \"\",\n    \"workflow_stage\": \"\",\n    \"workflow_step\": \"\",\n    \"requires_followup\": false,\n    \"escalate\": false\n  },\n\n  \"log_message\": \"Borrower greeted the AI assistant.\"\n}\n\nDo not include markdown.\n\nDo not include explanations.\n\nDo not include additional text.\n\nReturn JSON only.\n\nThe \"intent\" field MUST be one of:\n\nGREETING\nGENERAL_QUERY\nDOCUMENT_UPLOAD\nDOCUMENT_STATUS\nCHECKLIST_REQUEST\nAPPLICATION_STATUS\nBOOK_APPOINTMENT\nRESCHEDULE_APPOINTMENT\nCANCEL_APPOINTMENT\nHUMAN_ESCALATION\nUNKNOWN\n\nConfidence must be between 0 and 1.\n\nreply must always contain the message that should be sent to the borrower.\n\nroute_to must be one of:\n\nSELF\nDOCUMENT_INTAKE\nCHECKLIST_MANAGER\nWORKFLOW_MANAGER\nCALENDAR_MANAGER\nHUMAN"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1952,
+        704
+      ],
+      "id": "e38a4f05-4690-4fad-ae59-d87b92b2d7f5",
+      "name": "AI Agent",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 15000
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Build Conversation Context').first().json;\nconst raw = $input.first().json.output;\nconst ai = JSON.parse(raw);\n\nreturn [\n  {\n    json: {\n      borrower: context.borrower,\n      broker: context.broker,\n      loan_application: context.loan_application,\n      application_borrower: context.application_borrower,\n      conversation_session: context.conversation_session,\n      workflow_instance: context.workflow_instance,\n      required_documents: context.required_documents,\n      conversation_history: context.conversation_history,\n      attachments: context.latest_message.attachments || [],\n\n      intent: ai.intent,\n      confidence: ai.confidence,\n      reply: ai.reply,\n      route_to: ai.route_to,\n      requires_human: ai.requires_human,\n      reason: ai.reason,\n      priority: ai.priority,\n      conversation_status: ai.conversation_status,\n      next_action: ai.next_action,\n      workflow_update: ai.workflow_update,\n      session_update: ai.session_update,\n      metadata: ai.metadata,\n      log_message: ai.log_message,\n      created_at: new Date().toISOString()\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1584,
+        704
+      ],
+      "id": "589593c7-ca35-409c-983b-c14bdc0b9d6a",
+      "name": "Normalize AI Response"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "GREETING",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "2c75abbf-9d4b-4606-9a3a-fd0753467920"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Greeting"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "4317bd47-3f11-4132-9878-a12c125d7b08",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "GENERAL_QUERY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "General Query"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "eb51701e-b891-43fd-9e65-674d59390dc8",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "DOCUMENT_UPLOAD",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Document Intake"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6f421f47-656e-459b-bddf-e4c08d7a9dfb",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "DOCUMENT_STATUS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Document Status"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "73037809-eabb-46ad-b65c-f3fa0327dfe0",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "CHECKLIST_REQUEST",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Checklist Manager"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "76ee79de-9f99-4abc-a65a-3f77d7509b96",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "APPLICATION_STATUS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Workflow Manager"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bf0ffbf0-4885-4fc2-ae36-621e2c96d602",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "BOOK_APPOINTMENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Book Appointment"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "317c918f-8486-46e4-b449-b7822d3c50f5",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "RESCHEDULE_APPOINTMENT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reschedule Appointment "
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "22b24c81-4dbb-46c4-b84c-88e558dee3fa",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "CANCEL_APPOINTMENT ",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Cancel Appointment"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "31662ecd-d095-48c9-8cc7-a4c303d7b906",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "HUMAN_ESCALATION",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Human Escalation"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0ecd2f86-d5d9-4e54-b773-04fe0daee6b8",
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "UNKNOWN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Unknown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1376,
+        704
+      ],
+      "id": "77b38702-6371-4c6b-b12c-3205ac4fc9d3",
+      "name": "Intent Router",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [\n{\njson:{\nchat_id: input.borrower.telegram_chat_id,\ntext: input.reply\n}\n}\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -976,
+        288
+      ],
+      "id": "90809837-5791-4a3a-b36c-9436d30ad4bc",
+      "name": "Prepare Reply Payload"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.chat_id}}",
+        "text": "={{$json.text}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -768,
+        288
+      ],
+      "id": "fe6ca52f-9b16-4459-8baa-8765e875b1f9",
+      "name": "Send a text message",
+      "webhookId": "52dbcaee-3556-4cee-9ffe-9c97e1514335",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -560,
+        368
+      ],
+      "id": "146ab72f-fd18-4456-bb2f-43826d972391",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst now = new Date().toISOString();\n\nreturn [\n{\njson: {\n\nborrower: data.borrower,\n\nloan_application: data.loan_application,\n\napplication_borrower: data.application_borrower,\n\nconversation_session: data.conversation_session,\n\nworkflow_instance: data.workflow_instance,\n\nconversation_history: data.conversation_history,\n\nai_response: {\n\nintent: data.intent,\n\nconfidence: data.confidence,\n\nreply: data.reply,\n\nroute_to: data.route_to,\n\nrequires_human: data.requires_human,\n\nreason: data.reason,\n\npriority: data.priority,\n\nconversation_status: data.conversation_status,\n\nnext_action: data.next_action,\n\nmetadata: data.metadata\n\n},\n\ntelegram: {\n\nmessage_id: data.result?.message_id ?? null,\n\nchat_id: data.result?.chat?.id ?? null,\n\nstatus: data.ok ? \"DELIVERED\" : \"FAILED\",\n\nsent_at: now\n\n},\n\nmessage_payload: {\n\napplication_id:\ndata.loan_application.id,\n\nconversation_session_id:\ndata.conversation_session.id,\n\nsender_type:\n\"AI_AGENT\",\n\nreceiver_type:\n\"BORROWER\",\n\nchannel:\ndata.borrower.preferred_channel,\n\nmessage_type:\n\"TEXT\",\n\ndirection:\n\"OUTBOUND\",\n\nmessage_text:\ndata.reply,\n\nexternal_message_id:\nString(data.result?.message_id ?? \"\"),\n\ndelivery_status:\ndata.ok ? \"DELIVERED\" : \"FAILED\",\n\ncreated_at:\nnow,\n\nupdated_at:\nnow\n\n},\n\nconversation_payload: {\n\nid:\ndata.conversation_session.id,\n\nlast_message_at:\nnow,\n\nupdated_at:\nnow\n\n},\n\nworkflow_payload: {\n\nid:\ndata.workflow_instance.id,\n\ncurrent_stage:\ndata.metadata.workflow_stage ||\ndata.workflow_instance.current_stage,\n\ncurrent_step:\ndata.metadata.workflow_step ||\ndata.workflow_instance.current_step,\n\nupdated_at:\nnow\n\n},\n\nagent_execution_payload: {\n\napplication_id:\ndata.loan_application.id,\n\nconversation_session_id:\ndata.conversation_session.id,\n\nagent_name:\n\"Conversation Manager\",\n\nexecution_status:\n\"SUCCESS\",\n\ntrigger_source:\ndata.workflow_instance.current_stage,\n\nstarted_at:\nnow,\n\ncompleted_at:\nnow,\n\nexecution_duration_ms:\n0,\n\ninput_payload:\n{\nintent: data.intent,\nreply: data.reply\n},\n\noutput_payload:\n{\nconfidence: data.confidence,\nroute_to: data.route_to,\nrequires_human: data.requires_human\n},\n\nerror_message:\nnull,\n\nprompt_tokens:\n0,\n\ncompletion_tokens:\n0,\n\ntotal_tokens:\n0,\n\nestimated_cost_usd:\n0,\n\nmodel_name:\n\"gpt-4.1\",\n\nretry_count:\n0,\n\nworkflow_execution_id:\nnull,\n\ncreated_at:\nnow,\n\nupdated_at:\nnow\n\n}\n\n}\n}\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -352,
+        368
+      ],
+      "id": "f9268f82-2bf5-4994-87b4-5bffc0f0a96e",
+      "name": "Prepare Database Payload"
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$json.message_payload.application_id}}"
+            },
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{$json.message_payload.conversation_session_id}}"
+            },
+            {
+              "fieldId": "sender_type",
+              "fieldValue": "={{$json.message_payload.sender_type}}"
+            },
+            {
+              "fieldId": "receiver_type",
+              "fieldValue": "={{$json.message_payload.receiver_type}}"
+            },
+            {
+              "fieldId": "channel",
+              "fieldValue": "={{$json.message_payload.channel}}"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "={{$json.message_payload.message_type}}"
+            },
+            {
+              "fieldId": "direction",
+              "fieldValue": "={{$json.message_payload.direction}}"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{$json.message_payload.message_text}}"
+            },
+            {
+              "fieldId": "external_message_id",
+              "fieldValue": "={{$json.message_payload.external_message_id}}"
+            },
+            {
+              "fieldId": "delivery_status",
+              "fieldValue": "={{$json.message_payload.delivery_status}}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{$json.message_payload.created_at}}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$json.message_payload.updated_at}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        528
+      ],
+      "id": "6b54c2a0-8b0b-4da8-a701-bfcdc7eca7f8",
+      "name": "Create Message Record",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "conversation_sessions",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$json.conversation_payload.id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "last_message_at",
+              "fieldValue": "={{$json.conversation_payload.last_message_at}}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$json.conversation_payload.updated_at}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        240,
+        352
+      ],
+      "id": "bf1847ea-da61-4e72-88c7-5feb192b6205",
+      "name": "Update Conversation Session",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        16,
+        352
+      ],
+      "id": "ee55c73c-299b-4db8-977e-af6b43fdd075",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$json.agent_execution_payload.application_id}}"
+            },
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{$json.agent_execution_payload.conversation_session_id}}"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "={{$json.agent_execution_payload.execution_status}}"
+            },
+            {
+              "fieldId": "started_at",
+              "fieldValue": "={{$json.agent_execution_payload.started_at}}"
+            },
+            {
+              "fieldId": "completed_at",
+              "fieldValue": "={{$json.agent_execution_payload.completed_at}}"
+            },
+            {
+              "fieldId": "execution_duration_ms",
+              "fieldValue": "={{$json.agent_execution_payload.execution_duration_ms}}"
+            },
+            {
+              "fieldId": "total_tokens",
+              "fieldValue": "={{$json.agent_execution.total_tokens}}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{$json.agent_execution.created_at}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "={{$json.agent_execution_payload.agent_name}}"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "={{$json.agent_execution_payload.trigger_source}}"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{$json.agent_execution_payload.input_payload}}"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{$json.agent_execution_payload.output_payload}}"
+            },
+            {
+              "fieldId": "error_message",
+              "fieldValue": "={{$json.agent_execution_payload.error_message}}"
+            },
+            {
+              "fieldId": "prompt_tokens",
+              "fieldValue": "={{$json.agent_execution_payload.prompt_tokens}}"
+            },
+            {
+              "fieldId": "completion_tokens",
+              "fieldValue": "={{$json.agent_execution_payload.completion_tokens}}"
+            },
+            {
+              "fieldId": "estimated_cost_usd",
+              "fieldValue": "={{$json.agent_execution_payload.estimated_cost_usd}}"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "={{$json.agent_execution_payload.model_name}}"
+            },
+            {
+              "fieldId": "retry_count",
+              "fieldValue": "={{$json.agent_execution_payload.retry_count}}"
+            },
+            {
+              "fieldId": "workflow_execution_id",
+              "fieldValue": "={{$json.agent_execution_payload.workflow_execution_id}}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$json.agent_execution_payload.updated_at}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "id": "bc444160-4dcd-4c9a-9bae-972fe39ba0a6",
+      "name": "Create Agent Executions",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "workflow_instances",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$json.workflow_payload.id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "=current_stage",
+              "fieldValue": "={{$json.workflow_payload.current_stage}}"
+            },
+            {
+              "fieldId": "=current_step",
+              "fieldValue": "={{$json.workflow_payload.current_step}}"
+            },
+            {
+              "fieldId": "=updated_at",
+              "fieldValue": "={{$json.workflow_payload.updated_at}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "be52a4da-e100-4f1c-8eaf-febcf57b4fd2",
+      "name": "Update Workflow Instace",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "brokers",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$('Loan Application').item.json.broker_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3520,
+        608
+      ],
+      "id": "68bfe03b-f979-4780-b79f-1a2ea35b30ab",
+      "name": "Broker",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "borrowers",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_link_code",
+              "condition": "eq",
+              "keyValue": "={{$('Extract Telegram Context').item.json.message.text.trim()}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3824,
+        1040
+      ],
+      "id": "ec52c960-17b2-4cad-ba87-169ad60677ed",
+      "name": "Try Link By Code",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-0000-0000-000000000001",
+              "leftValue": "={{$json.id}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3616,
+        1040
+      ],
+      "id": "a4c5a22d-ed89-4695-81b4-f5116248db26",
+      "name": "Link Code Valid?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "borrowers",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$json.id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telegram_chat_id",
+              "fieldValue": "={{$('Extract Telegram Context').item.json.conversation_id}}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -3408,
+        960
+      ],
+      "id": "f71455de-76f8-4af2-8669-3094dc9ce5e3",
+      "name": "Link Borrower Telegram",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$('Extract Telegram Context').item.json.conversation_id}}",
+        "text": "You're linked! Please resend your message and I'll help you from here.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3200,
+        960
+      ],
+      "id": "9ae559d4-b4e5-413e-b74b-c4b03f1459e3",
+      "name": "Send Linked Confirmation",
+      "webhookId": "72d5561c-7afa-4a70-9dd9-6f69cd385131",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Normalize AI Response').item.json;\nlet content = '';\ntry { content = $input.first().json.choices[0].message.content; } catch (e) {}\nlet vision = { predicted_code: 'UNKNOWN', confidence: 0, reason: 'parse_failed' };\ntry { vision = JSON.parse(content); } catch (e) {}\nconst attachments = base.attachments || [];\nconst textGuess = ((base.metadata && base.metadata.document_type) || '').toUpperCase();\nconst visionCode = (vision && vision.predicted_code) ? String(vision.predicted_code).toUpperCase() : 'UNKNOWN';\nconst docType = (visionCode && visionCode !== 'UNKNOWN') ? visionCode : textGuess;\nconst match = (base.required_documents || []).find(d => d.document_type_code === docType && ['PENDING','REQUESTED'].includes(d.status));\nreturn [{\n  json: {\n    ...base,\n    vision: vision,\n    predicted_code: docType,\n    classification_source: (visionCode && visionCode !== 'UNKNOWN') ? 'vision' : (textGuess ? 'text' : 'none'),\n    match_found: !!match && attachments.length > 0,\n    checklist_id: match ? match.checklist_id : null,\n    attachment: attachments[0] || null\n  },\n  binary: $('Download Telegram File').item.binary,\n  pairedItem: { item: 0 }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        1328
+      ],
+      "id": "8721a1f4-e138-4fc1-b313-270562e25fa3",
+      "name": "Match Checklist Item"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c0000002-0000-0000-0000-000000000002",
+              "leftValue": "={{$json.match_found}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        1328
+      ],
+      "id": "db827670-aa86-433f-be0a-e73f3adadb7b",
+      "name": "Checklist Match Found?"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.attachments[0].file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1296,
+        1328
+      ],
+      "id": "79090d6e-b850-4054-8553-0fa0d10e40d2",
+      "name": "Download Telegram File",
+      "webhookId": "1b6a1d0f-ab85-4c95-b94b-6d5c98c719a6",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://ucoedigbgtbklkqqjqpw.supabase.co/storage/v1/object/borrower-documents/{{$('Normalize AI Response').item.json.loan_application.id}}/{{$('Match Checklist Item').item.json.checklist_id}}/{{encodeURIComponent($('Match Checklist Item').item.json.attachment.file_name)}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{SUPABASE_SERVICE_ROLE_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "={{$('Match Checklist Item').item.json.attachment.mime_type}}"
+            },
+            {
+              "name": "x-upsert",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        944
+      ],
+      "id": "5749e0be-4ca3-4b3c-90b3-f301e8684ca1",
+      "name": "Upload to Supabase Storage",
+      "notesInFlow": true,
+      "notes": "TODO: set real Supabase project URL + service role key (use HTTP Header Auth credential instead of hardcoding in production)."
+    },
+    {
+      "parameters": {
+        "tableId": "documents",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "checklist_id",
+              "fieldValue": "={{$('Match Checklist Item').item.json.checklist_id}}"
+            },
+            {
+              "fieldId": "original_filename",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "stored_filename",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "storage_path",
+              "fieldValue": "={{$('Normalize AI Response').item.json.loan_application.id}}/{{$('Match Checklist Item').item.json.checklist_id}}/{{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "mime_type",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.mime_type}}"
+            },
+            {
+              "fieldId": "file_extension",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_name.split('.').pop()}}"
+            },
+            {
+              "fieldId": "file_size_bytes",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_size}}"
+            },
+            {
+              "fieldId": "processing_status",
+              "fieldValue": "UPLOADED"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        400,
+        944
+      ],
+      "id": "b5b9d01a-f8a9-45e1-b7e2-051e2d4103ce",
+      "name": "Insert Document Record",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "document_checklists",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$('Match Checklist Item').item.json.checklist_id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "RECEIVED"
+            },
+            {
+              "fieldId": "received_at",
+              "fieldValue": "={{$now}}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        608,
+        944
+      ],
+      "id": "5f0a8674-514a-449f-be29-61c9b268e71f",
+      "name": "Update Checklist Status",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "workflow_events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "workflow_instance_id",
+              "fieldValue": "={{$('Normalize AI Response').item.json.workflow_instance.id}}"
+            },
+            {
+              "fieldId": "workflow_definition_id",
+              "fieldValue": "={{$('Normalize AI Response').item.json.workflow_instance.workflow_definition_id}}"
+            },
+            {
+              "fieldId": "loan_application_id",
+              "fieldValue": "={{$('Normalize AI Response').item.json.loan_application.id}}"
+            },
+            {
+              "fieldId": "event_name",
+              "fieldValue": "DOCUMENT_UPLOADED"
+            },
+            {
+              "fieldId": "event_category",
+              "fieldValue": "BUSINESS"
+            },
+            {
+              "fieldId": "event_status",
+              "fieldValue": "PENDING"
+            },
+            {
+              "fieldId": "payload",
+              "fieldValue": "={{ { checklist_id: $('Match Checklist Item').item.json.checklist_id, source: 'CONVERSATION_MANAGER' } }}"
+            },
+            {
+              "fieldId": "occurred_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        848,
+        944
+      ],
+      "id": "6355d68e-aebb-4be1-a1a5-b15f171702b1",
+      "name": "Publish Document Uploaded Event",
+      "notesInFlow": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "source_agent_id intentionally omitted - map to ai_agents.id for 'CONVERSATION_MANAGER' once that lookup is added."
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nreturn [\n  {\n    json: {\n      ...data,\n      unmatched_document: true\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -688,
+        1280
+      ],
+      "id": "58f7e659-b9ca-4949-b33b-645cf667cb64",
+      "name": "Log Unmatched Document"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "input1"
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1776,
+        1280
+      ],
+      "id": "b2906f7c-7197-4899-aff2-be1fddc0d13d",
+      "name": "Merge Document Outcome"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst sorted = items\n  .map(i => i.json)\n  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))\n  .slice(0, 15);\nreturn sorted.map(json => ({ json }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        704
+      ],
+      "id": "67a0e6bf-ecc1-4b19-a02e-459a4dde0a54",
+      "name": "Recent Conversation History"
+    },
+    {
+      "parameters": {
+        "jsCode": "const attachment = $('Match Checklist Item').item.json.attachment;\nconst allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/png'];\nconst maxSizeBytes = 10 * 1024 * 1024;\nconst errors = [];\n\nif (!attachment || !allowedMimeTypes.includes(attachment.mime_type)) {\n  errors.push('unsupported_file_type');\n}\nif (!attachment || !attachment.file_size || attachment.file_size === 0) {\n  errors.push('empty_file');\n}\nif (attachment && attachment.file_size > maxSizeBytes) {\n  errors.push('file_too_large');\n}\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    is_valid: errors.length === 0,\n    validation_errors: errors\n  },\n  binary: $input.first().binary\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -416,
+        960
+      ],
+      "id": "13f45a1f-119f-4105-bf60-904c41533bfe",
+      "name": "Validate Document"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{$json.is_valid}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -208,
+        960
+      ],
+      "id": "8cb5bc2b-2510-4089-80ab-439328f86380",
+      "name": "IF Valid?"
+    },
+    {
+      "parameters": {
+        "tableId": "documents",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "checklist_id",
+              "fieldValue": "={{$('Match Checklist Item').item.json.checklist_id}}"
+            },
+            {
+              "fieldId": "original_filename",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "stored_filename",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "storage_path",
+              "fieldValue": "={{$('Normalize AI Response').item.json.loan_application.id}}/{{$('Match Checklist Item').item.json.checklist_id}}/{{$('Match Checklist Item').item.json.attachment.file_name}}"
+            },
+            {
+              "fieldId": "mime_type",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.mime_type || 'unknown'}}"
+            },
+            {
+              "fieldId": "file_extension",
+              "fieldValue": "={{($('Match Checklist Item').item.json.attachment.file_name || '').split('.').pop()}}"
+            },
+            {
+              "fieldId": "file_size_bytes",
+              "fieldValue": "={{$('Match Checklist Item').item.json.attachment.file_size || 0}}"
+            },
+            {
+              "fieldId": "processing_status",
+              "fieldValue": "FAILED"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1168
+      ],
+      "id": "cef690fb-4751-497f-9976-52911ebdd2d7",
+      "name": "Set Status Failed",
+      "notesInFlow": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "documents table has no error_message column per current schema - validation_errors from 'Validate Document' are not persisted here. If you want them logged, write to ai_agent_executions.error_message in a follow-up node instead."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "13OrurOhBj7JEdem",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/13OrurOhBj7JEdem",
+          "cachedResultName": "WF004 OCR Agent"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1328,
+        944
+      ],
+      "id": "ef39f88f-0517-4931-948d-4561ee7fc5ea",
+      "name": "Execute Workflow: WF-004 OCR Agent",
+      "notesInFlow": true,
+      "notes": "TODO: select the real WF-004 workflow from the dropdown after paste - workflowId.value is empty, must be set manually in n8n UI."
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    document_id: $('Insert Document Record').item.json.id,\n    storage_path: $('Insert Document Record').item.json.storage_path,\n    mime_type: $('Insert Document Record').item.json.mime_type,\n    application_id: $('Normalize AI Response').item.json.loan_application.id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        944
+      ],
+      "id": "e26f388d-8923-40d4-b300-d3f47a5fb743",
+      "name": "Prepare OCR Payload"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.application_status }}",
+              "operator": {
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "DRAFT"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "af4824a1-09fe-4717-bdad-7f788af2402b",
+      "name": "Application Is DRAFT?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3520,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Telegram Context').item.json.conversation_id }}",
+        "text": "Your application is no longer active. Please contact your broker directly for assistance.",
+        "additionalFields": {}
+      },
+      "id": "9f4f5b76-0da7-4799-9ec1-3819b7775246",
+      "name": "Notify Application Not Active",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3520,
+        848
+      ],
+      "webhookId": "023cacc9-1cdd-4bba-87b1-ebb5f79d856c",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "id": "6343f675-b218-4116-8b34-9c658d9f8329",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        208,
+        1408
+      ],
+      "webhookId": "79489aab-4ceb-4add-b47b-3025da9f8adf",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "aWywywUI5m2oEVkI",
+          "name": "WhatsApp OAuth (AU Broker Flow)"
+        }
+      },
+      "notes": "AU Broker Flow WABA 965735519121907 / Phone Number ID 1354947867693478. Needs whatsAppTriggerApi credential (Client ID=1745711816546211, Client Secret=Meta App Secret) created by user in n8n UI."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "1354947867693478",
+        "recipientPhoneNumber": "={{ $json.messages[0].from }}",
+        "textBody": "Thanks for reaching out to AU Broker Flow! This is a test reply confirming the WhatsApp integration is live.",
+        "additionalFields": {}
+      },
+      "id": "4fdbae98-0467-49b9-90aa-f8abe433f129",
+      "name": "WhatsApp Send Test Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        1408
+      ],
+      "webhookId": "9093ac0b-8eb2-47ad-a324-9e60388e006d",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "htpTnQEAwm44UaiN",
+          "name": "WhatsApp API (AU Broker Flow)"
+        }
+      },
+      "notes": "Sends from the real registered AU Broker Flow number. Needs whatsAppApi credential (long-lived access token) created by user in n8n UI."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst bin = (item.binary && item.binary.data) ? item.binary.data : null;\nconst base = $('Normalize AI Response').item.json;\nconst reqs = (base.required_documents || []).filter(d => ['PENDING','REQUESTED'].includes(d.status));\nconst known = {\n  AADHAAR: \"AADHAAR = Aadhaar Card: Indian UIDAI national ID; 12-digit Aadhaar number (often shown as 1234 5678 9012), UIDAI logo, name, date of birth, gender, address, and a photo.\",\n  PAN: \"PAN = PAN Card: Indian Income Tax PAN card; a 10-character alphanumeric PAN like ABCDE1234F, cardholder name, father's name, date of birth, and 'INCOME TAX DEPARTMENT' / 'GOVT. OF INDIA' text.\",\n  PASSPORT: \"PASSPORT = Passport: government travel document with a photo, passport number, nationality, and two machine-readable (MRZ) lines at the bottom.\",\n  COMPANY_FINANCIALS: \"COMPANY_FINANCIALS = Company Financial Statements: balance sheet, profit-and-loss, or financial report pages.\"\n};\nconst codes = reqs.map(d => d.document_type_code);\nconst candidateText = codes.map(c => known[c] || (c + ' = ' + c)).join('\\n');\nconst mime = (bin && bin.mimeType) || (base.attachments && base.attachments[0] && base.attachments[0].mime_type) || 'image/jpeg';\nconst b64 = bin ? bin.data : '';\nconst dataUri = 'data:' + mime + ';base64,' + b64;\nconst prompt = 'You are classifying a document image uploaded by a mortgage borrower who did NOT label it.\\n\\nDecide which ONE of these expected document types the image is:\\n' + candidateText + '\\n\\nRespond with STRICT JSON only: {\"predicted_code\":\"<CODE or UNKNOWN>\",\"confidence\":<number 0-1>,\"reason\":\"<short reason>\"}\\nThe code MUST be exactly one of: ' + codes.join(', ') + ', or UNKNOWN if the image is none of them or is unreadable.';\nreturn [{\n  json: { data_uri: dataUri, mime: mime, candidate_codes: codes, prompt: prompt },\n  binary: item.binary,\n  pairedItem: { item: 0 }\n}];"
+      },
+      "id": "b6126c90-1d90-42aa-924b-55179b0da8d8",
+      "name": "Build Vision Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        1328
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4.1', temperature: 0, max_tokens: 300, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: 'You are a precise mortgage document classifier. Reply only with strict JSON.' }, { role: 'user', content: [ { type: 'text', text: $json.prompt }, { type: 'image_url', image_url: { url: $json.data_uri } } ] } ] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "37c248cb-f222-48ec-9c3e-7880694d253c",
+      "name": "Classify Document (Vision)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -944,
+        1328
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "lpIEEhIqDSzxZl1P",
+          "name": "OpenAI account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Telegram Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Telegram Payload": {
+      "main": [
+        [
+          {
+            "node": "Extract Telegram Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Recent Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Type": {
+      "main": [
+        [
+          {
+            "node": "Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Instance": {
+      "main": [
+        [
+          {
+            "node": "Document Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Session": {
+      "main": [
+        [
+          {
+            "node": "Workflow Instance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Application Borrower": {
+      "main": [
+        [
+          {
+            "node": "Loan Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrower Found?": {
+      "main": [
+        [
+          {
+            "node": "Application Borrower",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Try Link By Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Borrower": {
+      "main": [
+        [
+          {
+            "node": "Borrower Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Borrower Channel": {
+      "main": [
+        [
+          {
+            "node": "Borrower",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Telegram Context": {
+      "main": [
+        [
+          {
+            "node": "Resolve Borrower Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Checklist": {
+      "main": [
+        [
+          {
+            "node": "Document Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Conversation Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Normalize AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize AI Response": {
+      "main": [
+        [
+          {
+            "node": "Intent Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Router": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Download Telegram File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Prepare Reply Payload": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Prepare Database Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Database Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Message Record",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Create Agent Executions",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Workflow Instace",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Message Record": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Broker": {
+      "main": [
+        [
+          {
+            "node": "Conversation Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try Link By Code": {
+      "main": [
+        [
+          {
+            "node": "Link Code Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Code Valid?": {
+      "main": [
+        [
+          {
+            "node": "Link Borrower Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Borrower Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link Borrower Telegram": {
+      "main": [
+        [
+          {
+            "node": "Send Linked Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Checklist Item": {
+      "main": [
+        [
+          {
+            "node": "Checklist Match Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checklist Match Found?": {
+      "main": [
+        [
+          {
+            "node": "Validate Document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Unmatched Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Supabase Storage": {
+      "main": [
+        [
+          {
+            "node": "Insert Document Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Document Record": {
+      "main": [
+        [
+          {
+            "node": "Update Checklist Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Checklist Status": {
+      "main": [
+        [
+          {
+            "node": "Publish Document Uploaded Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Document Uploaded Event": {
+      "main": [
+        [
+          {
+            "node": "Prepare OCR Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Unmatched Document": {
+      "main": [
+        [
+          {
+            "node": "Merge Document Outcome",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Document Outcome": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reply Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Recent Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Build Conversation Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Document": {
+      "main": [
+        [
+          {
+            "node": "IF Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid?": {
+      "main": [
+        [
+          {
+            "node": "Upload to Supabase Storage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Status Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status Failed": {
+      "main": [
+        [
+          {
+            "node": "Merge Document Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow: WF-004 OCR Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Document Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OCR Payload": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow: WF-004 OCR Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loan Application": {
+      "main": [
+        [
+          {
+            "node": "Application Is DRAFT?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Application Is DRAFT?": {
+      "main": [
+        [
+          {
+            "node": "Broker",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Application Not Active",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp Send Test Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Telegram File": {
+      "main": [
+        [
+          {
+            "node": "Build Vision Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Vision Request": {
+      "main": [
+        [
+          {
+            "node": "Classify Document (Vision)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Document (Vision)": {
+      "main": [
+        [
+          {
+            "node": "Match Checklist Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "b174fb73-22c8-434d-a114-cfd0808bd4ce",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "oAiQoPYm2BFbPyc9",
+  "tags": []
+}

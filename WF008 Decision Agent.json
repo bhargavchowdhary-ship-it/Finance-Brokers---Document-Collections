@@ -1,0 +1,638 @@
+{
+  "name": "WF008 Decision Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "4d31f432-6dea-43c5-82ab-d6d60a390d58",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst application_id = body.application_id;\nif (!application_id) throw new Error('application_id missing from input payload');\nreturn [{ json: { application_id } }];"
+      },
+      "id": "f358ed20-2ab0-46fb-a9fe-42e812ce01d0",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT output_payload->>'overall_status' AS overall_status,\n  (output_payload->>'document_count')::int AS document_count\nFROM ai_agent_executions\nWHERE application_id = $1\n  AND agent_name = 'CROSS_VALIDATION_AGENT'\nORDER BY created_at DESC\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [$json.application_id] }}"
+        }
+      },
+      "id": "6b125815-49fc-44de-b677-15d57caf320c",
+      "name": "Get Cross Validation Outcome",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1952,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.overall_status }}",
+              "rightValue": "PASSED",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e6f658a3-d5e6-4f93-a7aa-d886e716061f",
+      "name": "Cross Validation Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1728,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "decision_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "final_decision",
+              "fieldValue": "APPROVED"
+            },
+            {
+              "fieldId": "confidence_score",
+              "fieldValue": 100
+            },
+            {
+              "fieldId": "decision_reason",
+              "fieldValue": "All required documents verified and cross-validated successfully. Application ready for broker review."
+            },
+            {
+              "fieldId": "ai_provider",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "ai_model",
+              "fieldValue": "DECISION_GATE"
+            }
+          ]
+        }
+      },
+      "id": "e035960d-9de9-4862-aa6b-34d7e8409907",
+      "name": "Insert Decision (APPROVED)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1504,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DECISION_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF007_CROSS_VALIDATION"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { final_decision: $('Insert Decision (APPROVED)').item.json.final_decision } }}"
+            }
+          ]
+        }
+      },
+      "id": "94096eec-dd1f-4fc5-9f6e-27b72e14dcec",
+      "name": "Log Agent Execution (Approved)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1280,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "APPROVED",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $('Normalize Input').item.json.application_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "be9db55a-4a3e-484a-b0ee-fe58bd293300",
+      "name": "Respond Approved",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -832,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT field_name, value_1, value_2, validation_notes\nFROM cross_validation_results\nWHERE loan_application_id = $1\n  AND validation_status = 'MISMATCH'\nORDER BY field_name;",
+        "options": {
+          "queryReplacement": "={{ [$('Normalize Input').item.json.application_id] }}"
+        }
+      },
+      "id": "d3b0d5a8-bcd5-4008-ac95-a58659fa7c1d",
+      "name": "Get Mismatch Details",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1504,
+        560
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const application_id = $('Normalize Input').first().json.application_id;\nconst outcome = $('Get Cross Validation Outcome').first().json;\nconst mismatches = $input.all().map(i => i.json).filter(m => m.field_name);\n\nlet final_decision, decision_reason;\n\nif (outcome.overall_status === 'FAILED') {\n  final_decision = 'MANUAL_REVIEW';\n  if (mismatches.length > 0) {\n    const details = mismatches.map(m => `${m.field_name}: \"${m.value_1}\" vs \"${m.value_2}\" (${m.validation_notes})`).join('; ');\n    decision_reason = `Cross-validation found ${mismatches.length} field mismatch(es) across documents: ${details}. Manual broker review required before proceeding.`;\n  } else {\n    decision_reason = 'Cross-validation reported FAILED status but no MISMATCH rows were found. Manual review required to investigate.';\n  }\n} else {\n  final_decision = 'MORE_DOCUMENTS_REQUIRED';\n  decision_reason = 'No completed cross-validation record found for this application yet. Required documents may still be outstanding.';\n}\n\nreturn [{ json: { application_id, final_decision, decision_reason, mismatch_count: mismatches.length } }];"
+      },
+      "id": "08569f15-02e7-4f94-9e27-2ef7e1f99ad8",
+      "name": "Build Decision Reason",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "decision_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $json.application_id }}"
+            },
+            {
+              "fieldId": "final_decision",
+              "fieldValue": "={{ $json.final_decision }}"
+            },
+            {
+              "fieldId": "confidence_score",
+              "fieldValue": 100
+            },
+            {
+              "fieldId": "decision_reason",
+              "fieldValue": "={{ $json.decision_reason }}"
+            },
+            {
+              "fieldId": "ai_provider",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "ai_model",
+              "fieldValue": "DECISION_GATE"
+            }
+          ]
+        }
+      },
+      "id": "4318f04d-b9c7-4533-93ac-6e5f8922bfaf",
+      "name": "Insert Decision (Blocked)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        560
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Build Decision Reason').item.json.application_id }}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DECISION_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF007_CROSS_VALIDATION"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { final_decision: $('Build Decision Reason').item.json.final_decision, decision_reason: $('Build Decision Reason').item.json.decision_reason } }}"
+            }
+          ]
+        }
+      },
+      "id": "3688c56c-531e-48e8-9ada-f7443bd72af0",
+      "name": "Log Agent Execution (Blocked)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        560
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "={{ $('Build Decision Reason').item.json.final_decision }}",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $('Build Decision Reason').item.json.application_id }}",
+              "type": "string"
+            },
+            {
+              "name": "decision_reason",
+              "value": "={{ $('Build Decision Reason').item.json.decision_reason }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "dfeb90a5-0a8e-4bad-95cd-2f47ddc7522a",
+      "name": "Respond Blocked",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -608,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF010 Broker Notification",
+          "mode": "id",
+          "value": "EafKwN0EZW2Xh3aU"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Normalize Input').item.json.application_id }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5ac9d2a3-3eb0-4df8-baf1-e0bf364a2775",
+      "name": "Trigger WF-010 Broker Notification",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1056,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $('Build Decision Reason').item.json.final_decision }}",
+              "operator": {
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "MANUAL_REVIEW"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "497bca76-b06d-4a07-a9a4-9a2b0fb4d613",
+      "name": "Needs Broker Attention?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -608,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF010 Broker Notification",
+          "mode": "id",
+          "value": "EafKwN0EZW2Xh3aU"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Build Decision Reason').item.json.application_id }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "d980cb43-af31-43bd-9921-cf973e52bcf1",
+      "name": "Trigger WF-010 Broker Notification (Manual Review)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -384,
+        336
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "application_id": "f0ec4f3c-4b2e-46ab-9cb7-9d32d2dc570c"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Cross Validation Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Cross Validation Outcome": {
+      "main": [
+        [
+          {
+            "node": "Cross Validation Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cross Validation Passed?": {
+      "main": [
+        [
+          {
+            "node": "Insert Decision (APPROVED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Mismatch Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Decision (APPROVED)": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Approved)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Mismatch Details": {
+      "main": [
+        [
+          {
+            "node": "Build Decision Reason",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Decision Reason": {
+      "main": [
+        [
+          {
+            "node": "Insert Decision (Blocked)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Decision (Blocked)": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Blocked)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Approved)": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-010 Broker Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-010 Broker Notification": {
+      "main": [
+        [
+          {
+            "node": "Respond Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Blocked)": {
+      "main": [
+        [
+          {
+            "node": "Needs Broker Attention?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Broker Attention?": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-010 Broker Notification (Manual Review)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-010 Broker Notification (Manual Review)": {
+      "main": [
+        [
+          {
+            "node": "Respond Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "5a5db46f-2022-4e81-b0f5-0e8e59405f77",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "NT9prpBK2VeKl7y9",
+  "tags": []
+}

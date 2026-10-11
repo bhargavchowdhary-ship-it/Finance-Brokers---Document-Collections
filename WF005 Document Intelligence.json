@@ -1,0 +1,893 @@
+{
+  "name": "WF005 Document Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2464,
+        96
+      ],
+      "id": "5f700455-b38c-426b-9c5e-f5fa8921327c",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst document_id = body.document_id;\nconst ocr_result_id = body.ocr_result_id;\nconst application_id = body.application_id;\n\nif (!document_id) throw new Error('document_id missing from input payload');\nif (!ocr_result_id) throw new Error('ocr_result_id missing from input payload');\nif (!application_id) throw new Error('application_id missing from input payload');\n\nreturn [{ json: { document_id, ocr_result_id, application_id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2240,
+        96
+      ],
+      "id": "2edf7731-dcb4-4d1c-a894-27d6db070d0e",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$json.document_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -2016,
+        96
+      ],
+      "id": "d81f4896-2afa-458d-9b8c-91a57f89d3f4",
+      "name": "Get Document",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "ocr_results",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$('Normalize Input').item.json.ocr_result_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1792,
+        96
+      ],
+      "id": "40c5c309-4ef7-45b7-9ec4-033e1f52fe1c",
+      "name": "Get OCR Result",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "document_checklists",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$('Get Document').item.json.checklist_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1568,
+        96
+      ],
+      "id": "22e821b0-c6b5-43dd-959e-3c0c55909c75",
+      "name": "Get Checklist Item",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "document_types",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$json.document_type_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1344,
+        96
+      ],
+      "id": "ab97b8b2-ba98-4184-acb2-ae044df44d44",
+      "name": "Get Document Type",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function simpleHash(str) {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    hash = (hash << 5) - hash + str.charCodeAt(i);\n    hash |= 0;\n  }\n  return Math.abs(hash).toString(16);\n}\n\nconst storagePath = $('Get Document').item.json.storage_path;\nif (!storagePath) {\n  throw new Error('storage_path missing from Get Document output');\n}\n\nconst priorVersions = $('Get many rows').all();\nconst nextVersion = (priorVersions.length > 0 && priorVersions[0].json.version_number != null)\n  ? priorVersions[0].json.version_number + 1\n  : 1;\n\nreturn {\n  ...$json,\n  file_hash: simpleHash(storagePath),\n  version_number: nextVersion\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        96
+      ],
+      "id": "e0b80fd0-cae7-4c84-b8ea-f970f8c9217c",
+      "name": "Prepare Version Payload"
+    },
+    {
+      "parameters": {
+        "tableId": "document_versions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "document_id",
+              "fieldValue": "={{$('Get Document').item.json.id.trim()}}"
+            },
+            {
+              "fieldId": "version_number",
+              "fieldValue": 1
+            },
+            {
+              "fieldId": "storage_path",
+              "fieldValue": "={{$('Get Document').item.json.storage_path.trim()}}"
+            },
+            {
+              "fieldId": "original_filename",
+              "fieldValue": "={{$('Get Document').item.json.original_filename.trim()}}"
+            },
+            {
+              "fieldId": "mime_type",
+              "fieldValue": "={{$('Get Document').item.json.mime_type.trim()}}"
+            },
+            {
+              "fieldId": "file_size_bytes",
+              "fieldValue": "={{$('Get Document').item.json.file_size_bytes}}"
+            },
+            {
+              "fieldId": "file_hash",
+              "fieldValue": "={{$json.file_hash}}"
+            },
+            {
+              "fieldId": "uploaded_by",
+              "fieldValue": "BORROWER"
+            },
+            {
+              "fieldId": "version_status",
+              "fieldValue": "ACTIVE"
+            },
+            {
+              "fieldId": "version_number",
+              "fieldValue": "={{$('Prepare Version Payload').item.json.version_number}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -672,
+        96
+      ],
+      "id": "a696da77-6280-4211-88e1-753bcd9ec8d8",
+      "name": "Create Document Version",
+      "notesInFlow": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "First version row for this document. If re-processing an already-versioned document later, this needs an UPSERT/next-version-number check — out of scope for MVP."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  model: \"gpt-4.1\",\n  response_format: { type: \"json_object\" },\n  temperature: 0,\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are a mortgage document data extraction engine for an Australian broker platform. Extract ONLY the following universal fields from the supplied OCR text. Return strict JSON, no commentary. Fields: full_name (string or null), date_of_birth (YYYY-MM-DD or null), address (string or null), document_number (string or null), expiry_date (YYYY-MM-DD or null), issuer (string or null). If a field is not present in this document type, return null for it — do not guess or fabricate.\"\n    },\n    {\n      role: \"user\",\n      content: `Document type: ${$('Get Document Type').item.json.code} (${$('Get Document Type').item.json.category})\\n\\nOCR TEXT:\\n${$('Get OCR Result').item.json.raw_text}`\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -448,
+        96
+      ],
+      "id": "be520f94-c980-4bbe-b975-7fc8a470a3a3",
+      "name": "Call GPT-4.1 Extraction",
+      "credentials": {
+        "openAiApi": {
+          "id": "lpIEEhIqDSzxZl1P",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resp = $json;\nconst input = $('Prepare Version Payload').item.json;\nconst reasons = [];\nlet fields = {};\n\ntry {\n  fields = JSON.parse(resp.choices[0].message.content);\n} catch (e) {\n  reasons.push('invalid_json_from_model');\n}\n\nif (resp.error) reasons.push(resp.error.message || 'openai_error');\n\nconst REQUIRED_KEYS = ['full_name','date_of_birth','address','document_number','expiry_date','issuer'];\nconst present = REQUIRED_KEYS.filter(k => fields[k] !== null && fields[k] !== undefined && fields[k] !== '');\nconst confidence_score = Math.round((present.length / REQUIRED_KEYS.length) * 100 * 100) / 100;\n\nif (present.length === 0) reasons.push('no_fields_extracted');\n\nconst usage = resp.usage || {};\nconst processing_time_ms = Date.now() - input.started_at;\n\nreturn [{ json: {\n  document_id: input.document_id,\n  ocr_result_id: input.ocr_result_id,\n  application_id: input.application_id,\n  document_version_id: $('Create Document Version').item.json.id,\n  is_success: reasons.length === 0,\n  reasons,\n  extracted_fields: fields,\n  confidence_score,\n  processing_time_ms,\n  prompt_tokens: usage.prompt_tokens || null,\n  completion_tokens: usage.completion_tokens || null,\n  total_tokens: usage.total_tokens || null\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        96
+      ],
+      "id": "74ba4c98-2b05-4685-a997-1b8a176fd88e",
+      "name": "Parse Response"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.is_success}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        96
+      ],
+      "id": "d60b3a7a-7b13-4e62-b676-41562ed3322d",
+      "name": "Extraction Succeeded?"
+    },
+    {
+      "parameters": {
+        "tableId": "document_intelligence_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "document_id",
+              "fieldValue": "={{$('Normalize Input').item.json.document_id}}"
+            },
+            {
+              "fieldId": "document_version_id",
+              "fieldValue": "={{$json.document_version_id}}"
+            },
+            {
+              "fieldId": "ocr_result_id",
+              "fieldValue": "={{$('Normalize Input').item.json.ocr_result_id}}"
+            },
+            {
+              "fieldId": "ai_provider",
+              "fieldValue": "OPENAI"
+            },
+            {
+              "fieldId": "ai_model",
+              "fieldValue": "gpt-4.1"
+            },
+            {
+              "fieldId": "extracted_fields",
+              "fieldValue": "={{$json.extracted_fields}}"
+            },
+            {
+              "fieldId": "confidence_score",
+              "fieldValue": "={{$json.confidence_score}}"
+            },
+            {
+              "fieldId": "processing_time_ms",
+              "fieldValue": "={{$json.processing_time_ms}}"
+            },
+            {
+              "fieldId": "intelligence_status",
+              "fieldValue": "COMPLETED"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "35f73a32-84ef-48f6-88eb-7e331eaf6057",
+      "name": "Insert Intelligence Result (COMPLETED)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Normalize Input').item.json.application_id.trim()}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DOCUMENT_INTELLIGENCE_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF004_OCR_AGENT"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "gpt-4.1"
+            },
+            {
+              "fieldId": "prompt_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.prompt_tokens}}"
+            },
+            {
+              "fieldId": "completion_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.completion_tokens}}"
+            },
+            {
+              "fieldId": "total_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.total_tokens}}"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{JSON.stringify($('Normalize Input').item.json)}}"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{JSON.stringify($('Parse Response').item.json)}}"
+            },
+            {
+              "fieldId": "completed_at",
+              "fieldValue": "={{$now.toISO()}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "b5ba2ce3-54f9-4801-8605-2a7e68adc67b",
+      "name": "Log Agent Execution (Success)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Parse Response').item.json.document_id}}",
+              "type": "string"
+            },
+            {
+              "name": "extracted_fields",
+              "value": "={{$('Parse Response').item.json.extracted_fields}}",
+              "type": "object"
+            },
+            {
+              "name": "confidence_score",
+              "value": "={{$('Parse Response').item.json.confidence_score}}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        896,
+        0
+      ],
+      "id": "d01a6f99-99f7-4940-b1a0-1fe06741b85b",
+      "name": "Respond Success"
+    },
+    {
+      "parameters": {
+        "tableId": "document_intelligence_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "document_id",
+              "fieldValue": "={{$('Normalize Input').item.json.document_id.trim()}}"
+            },
+            {
+              "fieldId": "document_version_id",
+              "fieldValue": "={{$json.document_version_id}}"
+            },
+            {
+              "fieldId": "ocr_result_id",
+              "fieldValue": "={{$('Normalize Input').item.json.ocr_result_id.trim()}}"
+            },
+            {
+              "fieldId": "ai_provider",
+              "fieldValue": "OPENAI"
+            },
+            {
+              "fieldId": "ai_model",
+              "fieldValue": "gpt-4.1"
+            },
+            {
+              "fieldId": "extracted_fields",
+              "fieldValue": "={{ {} }}"
+            },
+            {
+              "fieldId": "intelligence_status",
+              "fieldValue": "FAILED"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        192
+      ],
+      "id": "fceb5e25-c6a7-4350-8554-a6cac79117bb",
+      "name": "Insert Intelligence Result (FAILED)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Normalize Input').item.json.application_id.trim()}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "DOCUMENT_INTELLIGENCE_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "FAILED"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF004_OCR_AGENT"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "gpt-4.1"
+            },
+            {
+              "fieldId": "error_message",
+              "fieldValue": "={{$('Parse Response').item.json.reasons.join(', ')}}"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{JSON.stringify($('Normalize Input').item.json)}}"
+            },
+            {
+              "fieldId": "total_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.total_tokens}}"
+            },
+            {
+              "fieldId": "prompt_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.prompt_tokens}}"
+            },
+            {
+              "fieldId": "completion_tokens",
+              "fieldValue": "={{$('Call GPT-4.1 Extraction').item.json.usage.completion_tokens}}"
+            },
+            {
+              "fieldId": "completed_at",
+              "fieldValue": "={{$now.toISO()}}"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{JSON.stringify($('Parse Response').item.json)}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        192
+      ],
+      "id": "df57b007-82d4-4921-aefb-8799b69a9a41",
+      "name": "Log Agent Execution (Failed)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "FAILED",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Parse Response').item.json.document_id}}",
+              "type": "string"
+            },
+            {
+              "name": "reasons",
+              "value": "={{$('Parse Response').item.json.reasons}}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        192
+      ],
+      "id": "9a8ab06c-420b-4ddb-b440-5b7d32a6142b",
+      "name": "Respond Failed"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "document_versions",
+        "limit": 1,
+        "orderBy": "version_number",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "document_id",
+              "condition": "eq",
+              "keyValue": "={{$('Get Document').item.json.id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        96
+      ],
+      "id": "400958a1-c37a-4a77-b30a-7d881be955a7",
+      "name": "Get many rows",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF006 Verification",
+          "mode": "id",
+          "value": "VGqxdLra29cFroEI"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Normalize Input').item.json.application_id }}",
+            "document_id": "={{ $('Normalize Input').item.json.document_id }}",
+            "document_intelligence_result_id": "={{ $('Insert Intelligence Result (COMPLETED)').item.json.id }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "15d84012-0324-460d-8f4b-19e7829ecd77",
+      "name": "Trigger WF-006 Verification",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        672,
+        0
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "document_id": "51c0d103-e2ef-4556-90e3-a6e8601ee296",
+          "ocr_result_id": "cdf96eb2-944e-4d6a-8461-36c67a99cfbe",
+          "application_id": "f0ec4f3c-4b2e-46ab-9cb7-9d32d2dc570c"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Document": {
+      "main": [
+        [
+          {
+            "node": "Get OCR Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OCR Result": {
+      "main": [
+        [
+          {
+            "node": "Get Checklist Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Checklist Item": {
+      "main": [
+        [
+          {
+            "node": "Get Document Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Document Type": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Version Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Document Version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Document Version": {
+      "main": [
+        [
+          {
+            "node": "Call GPT-4.1 Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call GPT-4.1 Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Extraction Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraction Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Insert Intelligence Result (COMPLETED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert Intelligence Result (FAILED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Intelligence Result (COMPLETED)": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Success)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Intelligence Result (FAILED)": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Failed)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Failed)": {
+      "main": [
+        [
+          {
+            "node": "Respond Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Prepare Version Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Success)": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-006 Verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-006 Verification": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "c7d2fde2-17c6-490e-ac39-8a695f028c8a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "fZGWLQ277v07wyxR",
+  "tags": []
+}

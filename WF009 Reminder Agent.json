@@ -1,0 +1,529 @@
+{
+  "name": "WF009 Reminder Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "0d4f4755-76fc-414d-b77f-c99494e26f7a",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst application_id = body.application_id;\nif (!application_id) throw new Error('application_id missing from input payload');\nconst document_id = body.document_id || null;\nconst reasons = Array.isArray(body.reasons) ? body.reasons.filter(Boolean) : [];\nconst source = body.source || 'UNKNOWN';\nreturn [{ json: { application_id, document_id, reasons, source } }];"
+      },
+      "id": "7f04b078-c123-4374-997f-14bc19e7eda8",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2176,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT b.id AS borrower_id, b.first_name, b.telegram_chat_id, b.preferred_channel,\n  la.application_number,\n  cs.id AS conversation_session_id\nFROM loan_applications la\nJOIN application_borrowers ab ON ab.application_id = la.id AND ab.is_primary = true\nJOIN borrowers b ON b.id = ab.borrower_id\nLEFT JOIN conversation_sessions cs ON cs.application_id = la.id AND cs.channel = 'TELEGRAM'\nWHERE la.id = $1\nORDER BY cs.last_message_at DESC NULLS LAST\nLIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [$json.application_id] }}"
+        }
+      },
+      "id": "3b86c50e-2f57-4c6c-b0d2-7ca5d201be9a",
+      "name": "Get Borrower Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1952,
+        400
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.telegram_chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4ee8338d-1a49-4932-9b13-eeb3938204dc",
+      "name": "Has Telegram Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1728,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Input').first().json;\nconst ctx = $('Get Borrower Context').first().json;\nconst firstName = ctx.first_name || 'there';\nconst appNum = ctx.application_number || 'your application';\nconst reasonsText = input.reasons.length > 0\n  ? input.reasons.join(' ')\n  : 'We need an updated document from you to continue processing your application.';\nconst message_text = `Hi ${firstName}, regarding ${appNum}: ${reasonsText} Please reply here with the updated document when you're ready.`;\nreturn [{ json: { ...input, ...ctx, message_text } }];"
+      },
+      "id": "7e93b208-bdde-488f-b232-67d7989f6ec7",
+      "name": "Compose Reminder Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "={{ $json.message_text }}",
+        "additionalFields": {}
+      },
+      "id": "aea631e7-620f-479a-8068-3530d7773103",
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1280,
+        272
+      ],
+      "webhookId": "512d25bd-d6c5-4a71-a418-3ee6dc7b9506",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{ $('Get Borrower Context').item.json.conversation_session_id }}"
+            },
+            {
+              "fieldId": "sender_type",
+              "fieldValue": "AI_AGENT"
+            },
+            {
+              "fieldId": "receiver_type",
+              "fieldValue": "BORROWER"
+            },
+            {
+              "fieldId": "channel",
+              "fieldValue": "TELEGRAM"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "TEXT"
+            },
+            {
+              "fieldId": "direction",
+              "fieldValue": "OUTBOUND"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $('Compose Reminder Message').item.json.message_text }}"
+            },
+            {
+              "fieldId": "external_message_id",
+              "fieldValue": "={{ String($json.result?.message_id ?? '') }}"
+            },
+            {
+              "fieldId": "delivery_status",
+              "fieldValue": "={{ $json.ok ? 'DELIVERED' : 'FAILED' }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "id": "964be35f-a8fe-4d1d-8dae-211f9efeb95f",
+      "name": "Insert Message Record",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1056,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE document_checklists dc\nSET status = 'REQUESTED', received_at = NULL, verified_at = NULL, updated_at = now()\nFROM documents d\nWHERE d.checklist_id = dc.id\n  AND d.id = $1\nRETURNING dc.id;",
+        "options": {
+          "queryReplacement": "={{ [$('Normalize Input').item.json.document_id] }}"
+        }
+      },
+      "id": "9c8d56d4-82db-4c13-b1d6-e88472388812",
+      "name": "Reset Checklist For Resupply",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -832,
+        272
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "REMINDER_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "={{ $('Normalize Input').item.json.source }}"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { channel: 'TELEGRAM', document_id: $('Normalize Input').item.json.document_id, reasons: $('Normalize Input').item.json.reasons } }}"
+            }
+          ]
+        }
+      },
+      "id": "9c817835-1715-4d4c-8f78-edcb4933cb35",
+      "name": "Log Agent Execution (Sent)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -608,
+        272
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SENT",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $('Normalize Input').item.json.application_id }}",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{ $('Normalize Input').item.json.document_id }}",
+              "type": "string"
+            },
+            {
+              "name": "channel",
+              "value": "TELEGRAM",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "237d5970-08a0-4f82-b823-71231e775485",
+      "name": "Respond Sent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -384,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Normalize Input').item.json.application_id }}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "REMINDER_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "={{ $('Normalize Input').item.json.source }}"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { result: 'SKIPPED_NO_LINKED_CHANNEL' } }}"
+            },
+            {
+              "fieldId": "error_message",
+              "fieldValue": "Borrower has no linked Telegram chat_id; reminder not sent."
+            }
+          ]
+        }
+      },
+      "id": "f38a28bc-3418-4851-89f9-424a9209ac89",
+      "name": "Log Agent Execution (Skipped)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1504,
+        560
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "SKIPPED",
+              "type": "string"
+            },
+            {
+              "name": "application_id",
+              "value": "={{ $('Normalize Input').item.json.application_id }}",
+              "type": "string"
+            },
+            {
+              "name": "reason",
+              "value": "no_linked_channel",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d9b4ac69-ed09-4d4e-a921-8dd43647fb81",
+      "name": "Respond Skipped",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1280,
+        560
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "application_id": "84397920-5b40-42ca-95e2-e5e47db8c1cd",
+          "reasons": [
+            "Test reminder — should be skipped, no linked channel."
+          ],
+          "source": "TEST"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Borrower Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Borrower Context": {
+      "main": [
+        [
+          {
+            "node": "Has Telegram Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Telegram Link?": {
+      "main": [
+        [
+          {
+            "node": "Compose Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Agent Execution (Skipped)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Insert Message Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Message Record": {
+      "main": [
+        [
+          {
+            "node": "Reset Checklist For Resupply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset Checklist For Resupply": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution (Sent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Sent)": {
+      "main": [
+        [
+          {
+            "node": "Respond Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution (Skipped)": {
+      "main": [
+        [
+          {
+            "node": "Respond Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "5dace9c0-8f1a-4c0f-90fd-8502af88ba57",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "3V7WkllGokt39Mdw",
+  "tags": []
+}

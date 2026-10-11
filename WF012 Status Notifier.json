@@ -1,0 +1,317 @@
+{
+  "name": "WF012 Status Notifier",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wf012-status-notifier",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "id": "f320819a-6198-4398-b0e7-248160dd5668",
+      "name": "Status Change Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2208,
+        0
+      ],
+      "webhookId": "9ce73625-b5c2-4ec0-90c2-17dd7eb4b266"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst document_id = body.document_id || null;\nconst event = String(body.event || body.event_type || '').toUpperCase();\nif (!document_id) throw new Error('document_id missing from webhook payload');\nreturn [{ json: { document_id, event } }];"
+      },
+      "id": "69a29df4-9644-4ac9-a8a7-f08db778a35d",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1984,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT d.id AS document_id, d.processing_status, dc.application_id, dt.name AS doc_name, dt.code AS doc_code, b.id AS borrower_id, b.first_name, b.telegram_chat_id, la.application_number, cs.id AS conversation_session_id FROM documents d JOIN document_checklists dc ON dc.id = d.checklist_id JOIN document_types dt ON dt.id = dc.document_type_id JOIN loan_applications la ON la.id = dc.application_id JOIN application_borrowers ab ON ab.application_id = dc.application_id AND ab.is_primary = true JOIN borrowers b ON b.id = ab.borrower_id LEFT JOIN conversation_sessions cs ON cs.application_id = dc.application_id AND cs.channel = 'TELEGRAM' WHERE d.id = $1 ORDER BY cs.last_message_at DESC NULLS LAST LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [$json.document_id] }}"
+        }
+      },
+      "id": "3718142a-9971-4bc8-897f-5e5ac6aa3fad",
+      "name": "Get Notify Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.7,
+      "position": [
+        -1760,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "SyBhUj6REgmcuPkX",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.telegram_chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01b38d14-36f0-4d48-ac12-39335ef2e79b",
+      "name": "Has Telegram Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1536,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Get Notify Context').first().json;\nconst event = $('Normalize Input').first().json.event;\nconst firstName = ctx.first_name || 'there';\nconst docName = ctx.doc_name || 'your document';\nlet message_text;\nif (event === 'VERIFIED') {\n  message_text = '\\u2705 Good news ' + firstName + '! Your ' + docName + ' has been verified successfully.';\n} else if (event === 'RECEIVED') {\n  message_text = '\\uD83D\\uDCE5 Thanks ' + firstName + '! We\\u2019ve received your ' + docName + ' and started verifying it. I\\u2019ll update you shortly.';\n} else {\n  message_text = '\\u2139\\uFE0F Update on your ' + docName + ': status is now ' + (ctx.processing_status || event) + '.';\n}\nreturn [{ json: { ...ctx, event, message_text } }];"
+      },
+      "id": "3dd28534-8e94-4633-abe8-711899add242",
+      "name": "Compose Status Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "text": "={{ $json.message_text }}",
+        "additionalFields": {}
+      },
+      "id": "06c7f6a0-d512-4c77-acd5-d3c0517a4be2",
+      "name": "Send Telegram Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1104,
+        -128
+      ],
+      "webhookId": "5d40358d-ff9b-4261-b8ad-0fc559ac0213",
+      "credentials": {
+        "telegramApi": {
+          "id": "YZqLAADMT51H9lJA",
+          "name": "Telegram - Mortgage"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{ $('Get Notify Context').item.json.application_id }}"
+            },
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{ $('Get Notify Context').item.json.conversation_session_id }}"
+            },
+            {
+              "fieldId": "sender_type",
+              "fieldValue": "AI_AGENT"
+            },
+            {
+              "fieldId": "receiver_type",
+              "fieldValue": "BORROWER"
+            },
+            {
+              "fieldId": "channel",
+              "fieldValue": "TELEGRAM"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "TEXT"
+            },
+            {
+              "fieldId": "direction",
+              "fieldValue": "OUTBOUND"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $('Compose Status Message').item.json.message_text }}"
+            },
+            {
+              "fieldId": "external_message_id",
+              "fieldValue": "={{ String($json.result?.message_id ?? '') }}"
+            },
+            {
+              "fieldId": "delivery_status",
+              "fieldValue": "={{ $json.ok ? 'DELIVERED' : 'FAILED' }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "id": "05fa4387-e62f-4c61-b22d-c035c726e299",
+      "name": "Insert Message Record",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        -128
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "status",
+              "value": "SKIPPED",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "reason",
+              "value": "no_linked_telegram",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "8dd2d9e6-2f87-413f-8eb8-e3c95df5069f",
+      "name": "Skipped No Link",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1328,
+        144
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Status Change Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Notify Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Notify Context": {
+      "main": [
+        [
+          {
+            "node": "Has Telegram Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Telegram Link?": {
+      "main": [
+        [
+          {
+            "node": "Compose Status Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skipped No Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Status Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Insert Message Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "53356fd3-ad65-4efa-aa4e-625eecd00e38",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "2fWxJfqEFwRPWE9m",
+  "tags": []
+}

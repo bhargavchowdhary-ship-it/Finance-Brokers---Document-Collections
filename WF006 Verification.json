@@ -1,0 +1,566 @@
+{
+  "name": "WF006 Verification",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2128,
+        -16
+      ],
+      "id": "27ef6b7b-0888-4390-90c3-4f29a836cc3d",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.payload || $json;\nconst document_id = body.document_id;\nconst document_intelligence_result_id = body.document_intelligence_result_id;\nconst application_id = body.application_id;\n\nif (!document_id) throw new Error('document_id missing from input payload');\nif (!document_intelligence_result_id) throw new Error('document_intelligence_result_id missing from input payload');\nif (!application_id) throw new Error('application_id missing from input payload');\n\nreturn [{ json: { document_id, document_intelligence_result_id, application_id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1904,
+        -16
+      ],
+      "id": "03c1dd6e-c041-4812-8663-6e6e7bfe5516",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "tableId": "document_intelligence_results",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "keyValue": "={{$json.document_intelligence_result_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1680,
+        -16
+      ],
+      "id": "f5790748-8915-479d-a4ab-9fbcf22db681",
+      "name": "Get Intelligence Result",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('Normalize Input').item.json;\nconst fields = $json.extracted_fields || {};\n\n// --- Check 1: required-field completeness (full_name is the one universal field\n// every identity/income document should carry) ---\nlet completeness_status, completeness_message;\nif (fields.full_name && String(fields.full_name).trim().length > 0) {\n  completeness_status = 'PASSED';\n  completeness_message = 'full_name present.';\n} else {\n  completeness_status = 'FAILED';\n  completeness_message = 'full_name missing from extracted fields.';\n}\n\n// --- Check 2: expiry date, only applicable if the field was populated ---\nlet expiry_status, expiry_message;\nif (!fields.expiry_date) {\n  expiry_status = 'PASSED';\n  expiry_message = 'No expiry_date field present for this document type.';\n} else {\n  const expiry = new Date(fields.expiry_date);\n  const today = new Date();\n  today.setHours(0, 0, 0, 0);\n\n  if (isNaN(expiry.getTime())) {\n    expiry_status = 'WARNING';\n    expiry_message = `Could not parse expiry_date value: \"${fields.expiry_date}\".`;\n  } else if (expiry < today) {\n    expiry_status = 'FAILED';\n    expiry_message = `Document expired on ${fields.expiry_date}.`;\n  } else {\n    expiry_status = 'PASSED';\n    expiry_message = `Valid until ${fields.expiry_date}.`;\n  }\n}\n\n// --- Aggregate ---\nlet overall_status;\nif (completeness_status === 'FAILED' || expiry_status === 'FAILED') {\n  overall_status = 'FAILED';\n} else if (completeness_status === 'WARNING' || expiry_status === 'WARNING') {\n  overall_status = 'WARNING';\n} else {\n  overall_status = 'PASSED';\n}\n\nreturn [{ json: {\n  document_id: input.document_id,\n  application_id: input.application_id,\n  intelligence_result_id: input.document_intelligence_result_id,\n  completeness_status,\n  completeness_message,\n  expiry_status,\n  expiry_message,\n  overall_status\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        -16
+      ],
+      "id": "9b3a2eb3-d378-44c5-94d7-d0ccfe7cba71",
+      "name": "Run Verification Rules"
+    },
+    {
+      "parameters": {
+        "tableId": "verification_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$json.application_id}}"
+            },
+            {
+              "fieldId": "intelligence_result_id",
+              "fieldValue": "={{$json.intelligence_result_id}}"
+            },
+            {
+              "fieldId": "verification_type",
+              "fieldValue": "DOCUMENT_AUTHENTICITY"
+            },
+            {
+              "fieldId": "verification_status",
+              "fieldValue": "={{$json.completeness_status}}"
+            },
+            {
+              "fieldId": "verification_message",
+              "fieldValue": "={{$json.completeness_message}}"
+            },
+            {
+              "fieldId": "verified_by",
+              "fieldValue": "SYSTEM_RULE_ENGINE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1232,
+        -16
+      ],
+      "id": "f397d1cd-f720-4556-af6f-f77267bfec4e",
+      "name": "Insert Verification (Completeness)",
+      "notesInFlow": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      },
+      "notes": "Reusing DOCUMENT_AUTHENTICITY enum value for field-completeness — verification_type_enum has no dedicated 'completeness' type. Flagged, not a bug."
+    },
+    {
+      "parameters": {
+        "tableId": "verification_results",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Run Verification Rules').item.json.application_id}}"
+            },
+            {
+              "fieldId": "intelligence_result_id",
+              "fieldValue": "={{$('Run Verification Rules').item.json.intelligence_result_id}}"
+            },
+            {
+              "fieldId": "verification_type",
+              "fieldValue": "DOCUMENT_EXPIRY"
+            },
+            {
+              "fieldId": "verification_status",
+              "fieldValue": "={{$('Run Verification Rules').item.json.expiry_status}}"
+            },
+            {
+              "fieldId": "verification_message",
+              "fieldValue": "={{$('Run Verification Rules').item.json.expiry_message}}"
+            },
+            {
+              "fieldId": "verified_by",
+              "fieldValue": "SYSTEM_RULE_ENGINE"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1008,
+        -16
+      ],
+      "id": "23148f9d-a9d9-48f9-af5c-ae9b3b50ab35",
+      "name": "Insert Verification (Expiry)",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "ai_agent_executions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "application_id",
+              "fieldValue": "={{$('Run Verification Rules').item.json.application_id}}"
+            },
+            {
+              "fieldId": "agent_name",
+              "fieldValue": "VERIFICATION_AGENT"
+            },
+            {
+              "fieldId": "execution_status",
+              "fieldValue": "SUCCESS"
+            },
+            {
+              "fieldId": "trigger_source",
+              "fieldValue": "WF005_DOCUMENT_INTELLIGENCE"
+            },
+            {
+              "fieldId": "model_name",
+              "fieldValue": "RULE_ENGINE"
+            },
+            {
+              "fieldId": "input_payload",
+              "fieldValue": "={{ { document_id: $('Run Verification Rules').item.json.document_id } }}"
+            },
+            {
+              "fieldId": "output_payload",
+              "fieldValue": "={{ { overall_status: $('Run Verification Rules').item.json.overall_status, completeness_status: $('Run Verification Rules').item.json.completeness_status, expiry_status: $('Run Verification Rules').item.json.expiry_status } }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        -16
+      ],
+      "id": "a70c68cf-c97d-43cd-b63e-1be9145f0dfd",
+      "name": "Log Agent Execution",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$('Run Verification Rules').item.json.overall_status}}",
+              "rightValue": "FAILED",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        -16
+      ],
+      "id": "cbdeba98-eee9-4f5f-9f0a-ceb3c8c4d7eb",
+      "name": "Passed or Warning?"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{$('Run Verification Rules').item.json.document_id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "processing_status",
+              "fieldValue": "VERIFIED"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{$now}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        -144
+      ],
+      "id": "e1a63743-f5f3-4514-a8e2-312c01401cf3",
+      "name": "Set Document VERIFIED",
+      "credentials": {
+        "supabaseApi": {
+          "id": "9Cdye6vkwNNNIRDf",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "={{$('Run Verification Rules').item.json.overall_status}}",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Run Verification Rules').item.json.document_id}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        112,
+        -144
+      ],
+      "id": "f687c911-c476-4a8a-8f45-43f14fc535b5",
+      "name": "Respond Passed/Warning"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "status",
+              "value": "FAILED",
+              "type": "string"
+            },
+            {
+              "name": "document_id",
+              "value": "={{$('Run Verification Rules').item.json.document_id}}",
+              "type": "string"
+            },
+            {
+              "name": "reasons",
+              "value": "={{ [$('Run Verification Rules').item.json.completeness_message, $('Run Verification Rules').item.json.expiry_message] }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -112,
+        112
+      ],
+      "id": "0d88a73f-eecb-4a8e-9a97-b0f8d6e040ba",
+      "name": "Respond Failed"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF007 Cross Validation",
+          "mode": "id",
+          "value": "vHpeJU4RwQzMTgrb"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Run Verification Rules').item.json.application_id }}"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "1de76249-aa18-4fd5-85af-118cca724b5f",
+      "name": "Trigger WF-007 Cross Validation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -112,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "WF009 Reminder Agent",
+          "mode": "id",
+          "value": "3V7WkllGokt39Mdw"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "application_id": "={{ $('Run Verification Rules').item.json.application_id }}",
+            "document_id": "={{ $('Run Verification Rules').item.json.document_id }}",
+            "reasons": "={{ [$('Run Verification Rules').item.json.completeness_message, $('Run Verification Rules').item.json.expiry_message] }}",
+            "source": "WF006_VERIFICATION"
+          }
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "864d3097-2d00-4652-ae9f-bcde69d6a3cf",
+      "name": "Trigger WF-009 Reminder Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -336,
+        112
+      ]
+    }
+  ],
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "document_id": "63131182-82ad-481d-a780-ee82b9bd4ea8",
+          "document_intelligence_result_id": "15878ec0-77b6-40fe-a822-aa5bc5206bb2",
+          "application_id": "84397920-5b40-42ca-95e2-e5e47db8c1cd"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Get Intelligence Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Intelligence Result": {
+      "main": [
+        [
+          {
+            "node": "Run Verification Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Verification Rules": {
+      "main": [
+        [
+          {
+            "node": "Insert Verification (Completeness)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Verification (Completeness)": {
+      "main": [
+        [
+          {
+            "node": "Insert Verification (Expiry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Verification (Expiry)": {
+      "main": [
+        [
+          {
+            "node": "Log Agent Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Agent Execution": {
+      "main": [
+        [
+          {
+            "node": "Passed or Warning?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Passed or Warning?": {
+      "main": [
+        [
+          {
+            "node": "Set Document VERIFIED",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Trigger WF-009 Reminder Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Document VERIFIED": {
+      "main": [
+        [
+          {
+            "node": "Trigger WF-007 Cross Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-007 Cross Validation": {
+      "main": [
+        [
+          {
+            "node": "Respond Passed/Warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger WF-009 Reminder Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "2e4f51f5-b917-4891-96d1-e066473cd787",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "cdc4f921779a94318312339166f91dedd56c07cf80619c2e5e03316ba2ecbed5"
+  },
+  "nodeGroups": [],
+  "id": "VGqxdLra29cFroEI",
+  "tags": []
+}

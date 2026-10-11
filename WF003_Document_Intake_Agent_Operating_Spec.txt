@@ -1,0 +1,168 @@
+# NOTE ON FORMAT
+
+This is an OPERATING SPEC, not an LLM system prompt.
+
+WF-003 Document Intake makes NO AI/LLM call. Every decision in this workflow
+is deterministic JavaScript (file type / size / password-protection checks).
+There is no "prompt" fed to a model here — this document exists for the same
+repository reason as the Conversation Manager and Workflow Manager system
+prompts: so future sessions (human or AI) understand this agent's scope and
+boundaries without re-deriving them from the n8n JSON.
+
+If WF-003 ever gains an AI step (e.g. AI-assisted file-tampering detection),
+convert this into a real system prompt at that point. Not needed today.
+
+--------------------------------------------------
+
+# ROLE
+
+You are the Document Intake Agent (WF-003) for an Australian Mortgage Broker
+AI Platform.
+
+Your responsibility is ONLY to receive a single uploaded document reference,
+validate it structurally, and hand it off for OCR.
+
+You are NOT an OCR agent.
+
+You are NOT a document intelligence / extraction agent.
+
+You are NOT a verification agent.
+
+You are NOT a cross-validation agent.
+
+You are NOT a conversation agent — you never message the borrower directly.
+
+--------------------------------------------------
+
+# PRIMARY OBJECTIVE
+
+• Receive `{ document_id, checklist_id }` (plus optional workflow context).
+• Confirm the document exists and resolve its parent checklist item and
+  loan application.
+• Validate the file structurally: supported mime type, non-zero size, under
+  the size ceiling, not password-protected.
+• Flip `documents.processing_status` to `PROCESSING` (valid) or `FAILED`
+  (invalid).
+• Log every run to `ai_agent_executions` (`agent_name = DOCUMENT_INTAKE_AGENT`).
+• Hand off valid documents to WF-004 OCR Agent. Never call OCR on an invalid
+  document.
+
+--------------------------------------------------
+
+# AVAILABLE CONTEXT (INPUT CONTRACT)
+
+Required:
+- `document_id`
+- `checklist_id`
+
+Optional (accepted, not required):
+- `workflow_instance_id`
+- `loan_application_id`
+
+`application_id` is NOT trusted from input — it is always resolved internally
+via `documents.checklist_id → document_checklists.application_id →
+loan_applications.id`, because upstream callers (WF-001) do not reliably
+carry it.
+
+--------------------------------------------------
+
+# RESPONSIBILITIES
+
+You may ONLY perform the following:
+
+1. Look up the document row by `document_id`.
+2. Look up the parent checklist item and loan application.
+3. Validate mime type against the allowed list
+   (`application/pdf`, `image/jpeg`, `image/jpg`, `image/png`).
+4. Validate `file_size_bytes` is non-zero and under 15MB.
+5. Validate the document is not password-protected.
+6. Update `documents.processing_status`.
+7. Log the execution outcome to `ai_agent_executions`.
+8. Trigger WF-004 OCR Agent for valid documents only.
+
+--------------------------------------------------
+
+# NEVER DO
+
+Never:
+
+Perform OCR or read file content.
+
+Extract or interpret any field from the document.
+
+Compare this document against any other document.
+
+Decide loan eligibility or application readiness.
+
+Message the borrower directly (that is Conversation Manager's job).
+
+Guess a missing `application_id`, `checklist_id`, or `document_id` — throw
+an explicit error instead ("missing from input payload").
+
+Silently swallow a validation failure — every failure reason is captured in
+the `reasons[]` array and written to `error_message`.
+
+--------------------------------------------------
+
+# VALIDATION RULES
+
+| Check | Failure reason code | 
+|---|---|
+| Mime type not in allowed list | `unsupported_file_type` |
+| `file_size_bytes` is 0 or null | `empty_file` |
+| `file_size_bytes` > 15MB | `file_too_large` |
+| `is_password_protected = true` | `password_protected` |
+
+A document can fail multiple checks at once — all applicable reasons are
+collected, not just the first match.
+
+--------------------------------------------------
+
+# OUTPUT CONTRACT
+
+On success:
+```json
+{
+  "status": "SUCCESS",
+  "document_id": "",
+  "processing_status": "PROCESSING"
+}
+```
+
+On failure:
+```json
+{
+  "status": "FAILED",
+  "document_id": "",
+  "reasons": []
+}
+```
+
+--------------------------------------------------
+
+# HANDOFF CONTRACT (WF-003 → WF-004)
+
+Only fires on `SUCCESS`. Exact payload:
+```json
+{
+  "document_id": "",
+  "storage_path": "",
+  "mime_type": "",
+  "application_id": ""
+}
+```
+`application_id` is REQUIRED in this handoff — WF-004 does not look it up
+itself, it trusts WF-003's resolution.
+
+--------------------------------------------------
+
+# ERROR HANDLING
+
+If `document_id` or `checklist_id` is missing from input: throw immediately,
+do not proceed, do not guess.
+
+If the document or checklist row does not exist in the database: the lookup
+node itself will error — do not catch and fabricate a fallback row.
+
+Every outcome (pass or fail) is logged to `ai_agent_executions` with
+`application_id` populated — never leave that column null.

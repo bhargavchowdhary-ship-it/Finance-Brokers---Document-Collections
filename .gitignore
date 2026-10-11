@@ -1,0 +1,14 @@
+﻿# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Excluded by owner: empty placeholders
+error contract.md
+event contract.md
+message contract.md
+
+# Excluded by owner: superseded duplicates
+Visual Tables Schema 22nd july 26.txt
+claude/
